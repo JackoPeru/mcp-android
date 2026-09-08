@@ -30,6 +30,7 @@ public final class TransportManager {
     private boolean monitoring;
     private RpcEndpointServer lanServer;
     private RpcEndpointServer tailscaleServer;
+    private final LanDiscoveryResponder discoveryResponder = new LanDiscoveryResponder();
     private TransportEndpoint lanEndpoint;
     private TransportEndpoint tailscaleEndpoint;
     private volatile String lastError = "";
@@ -93,6 +94,7 @@ public final class TransportManager {
         connectivity = null;
         stopLan();
         stopTailscale();
+        discoveryResponder.stop();
         lastError = "";
     }
 
@@ -130,7 +132,7 @@ public final class TransportManager {
     public synchronized String error() { return lastError; }
 
     public synchronized JSONObject status() {
-        try { return encodeStatus(lanEndpoint, tailscaleEndpoint, false); }
+        try { return encodeStatus(lanEndpoint, tailscaleEndpoint, discoveryResponder.isRunning()); }
         catch (JSONException e) { return new JSONObject(); }
     }
 
@@ -265,8 +267,14 @@ public final class TransportManager {
         RpcEndpointServer server = new RpcEndpointServer(context, dispatcher, endpoint,
                 RpcEndpointServer.lanClientPolicy(endpoint.address, endpoint.prefixLength));
         server.start();
-        lanServer = server;
-        lanEndpoint = endpoint;
+        try {
+            discoveryResponder.start(endpoint);
+            lanServer = server;
+            lanEndpoint = endpoint;
+        } catch (Exception e) {
+            server.stop();
+            throw e;
+        }
     }
 
     private void startTailscale(TransportEndpoint endpoint) throws Exception {
@@ -279,6 +287,7 @@ public final class TransportManager {
     }
 
     private void stopLan() {
+        discoveryResponder.stop();
         if (lanServer != null) lanServer.stop();
         lanServer = null;
         lanEndpoint = null;
