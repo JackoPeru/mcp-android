@@ -33,9 +33,9 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Build o verifica Android fallita.' }
     $deliveryDirectory = Join-Path $PSScriptRoot 'dist'
     New-Item -ItemType Directory -Force -Path $deliveryDirectory | Out-Null
-    $apkPath = Join-Path $deliveryDirectory 'mcp-android-0.5.0-debug.apk'
+    $apkPath = Join-Path $deliveryDirectory 'mcp-android-0.6.0-debug.apk'
     Copy-Item -LiteralPath 'app/build/outputs/apk/debug/app-debug.apk' -Destination $apkPath
     $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $apkPath).Hash.ToLowerInvariant()
-    "$hash  mcp-android-0.5.0-debug.apk" | Set-Content -Encoding ascii -LiteralPath "$apkPath.sha256"
+    "$hash  mcp-android-0.6.0-debug.apk" | Set-Content -Encoding ascii -LiteralPath "$apkPath.sha256"
     Write-Output "APK verificato: $apkPath"
 } finally { Pop-Location }

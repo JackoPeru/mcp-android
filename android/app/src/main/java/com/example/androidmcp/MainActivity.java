@@ -21,12 +21,38 @@ import android.widget.Toast;
 public final class MainActivity extends Activity {
     private FileRootStore roots;
     private TextView status;
+    private TextView updateStatus;
     private LinearLayout rootList;
+    private final UpdateManager.Callback updateCallback = new UpdateManager.Callback() {
+        @Override public void onState(String message) {
+            if (updateStatus != null) updateStatus.setText(message);
+        }
+        @Override public void onNoUpdate(String currentVersion) {
+            if (updateStatus != null) {
+                updateStatus.setText(getString(R.string.update_current, currentVersion));
+            }
+        }
+        @Override public void onUpdateAvailable(UpdateManager.Release release) {
+            if (updateStatus != null) {
+                updateStatus.setText(getString(R.string.update_available, release.version));
+            }
+            showUpdateDialog(release);
+        }
+        @Override public void onError(String message) {
+            if (updateStatus != null) updateStatus.setText(getString(R.string.update_error, message));
+        }
+    };
     private final Handler handler = new Handler(android.os.Looper.getMainLooper());
     private final Runnable refreshStatus = new Runnable() {
         @Override public void run() {
-            status.setText((McpForegroundService.isRunning() ? "Attivo: http://" + McpForegroundService.address() + ":8765" : "Servizio fermo")
-                + "\nAccessibilità: " + (McpAccessibilityService.active() == null ? "disattivata" : "attiva") + "\n" + McpForegroundService.error());
+            String remote = McpForegroundService.isRunning()
+                    ? getString(R.string.remote_active, McpForegroundService.address())
+                    : getString(R.string.remote_stopped);
+            String accessibility = getString(R.string.accessibility_state,
+                    getString(McpAccessibilityService.active() == null
+                            ? R.string.accessibility_off : R.string.accessibility_on));
+            status.setText(getString(R.string.status_summary,
+                    remote, accessibility, McpForegroundService.error()));
             handler.postDelayed(this, 1000);
         }
     };
@@ -49,7 +75,10 @@ public final class MainActivity extends Activity {
         });
         text(layout, "MCP Android", 28);
         text(layout, "Controllo del tuo telefono su rete privata Tailscale. Il token autorizza l'agente a usare la UI e le cartelle che scegli. Le modifiche ai file sono possibili solo dove Android concede anche il permesso di scrittura. Avvia soltanto quando vuoi consentire l'accesso.", 16);
+        text(layout, "Versione installata: " + installedVersion(), 15);
         status = text(layout, "", 16);
+        updateStatus = text(layout, "Aggiornamenti: controllo automatico giornaliero.", 14);
+        button(layout, "Controlla aggiornamenti", () -> UpdateManager.check(this, true, updateCallback));
         button(layout, "1. Abilita Accessibilità", () -> startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)));
         button(layout, "Accesso notifiche (opzionale)", () -> startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)));
         button(layout, "Abilita shell Termux (opzionale)", () -> {
@@ -93,6 +122,26 @@ public final class MainActivity extends Activity {
         button(layout, "Impostazioni app / batteria", () -> startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName()))));
     }
 
+    private void showUpdateDialog(UpdateManager.Release release) {
+        if (isFinishing() || isDestroyed()) return;
+        StringBuilder message = new StringBuilder()
+                .append("Versione installata: ").append(installedVersion())
+                .append("\nNuova versione: ").append(release.version)
+                .append("\n\nL'APK verrà scaricato da GitHub Releases, verificato con SHA-256 e poi passato all'installer Android.");
+        if (release.notes != null && !release.notes.trim().isEmpty()) {
+            String notes = release.notes.trim();
+            if (notes.length() > 1200) notes = notes.substring(0, 1200) + "…";
+            message.append("\n\nNote:\n").append(notes);
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Aggiornamento v" + release.version)
+                .setMessage(message.toString())
+                .setPositiveButton("Aggiorna", (dialog, which) ->
+                        UpdateManager.install(this, release, updateCallback))
+                .setNegativeButton("Più tardi", null)
+                .show();
+    }
+
     private void showToken() {
         McpForegroundService.stopNow();
         TextView view = new TextView(this);
@@ -105,6 +154,15 @@ public final class MainActivity extends Activity {
             .setView(view).setPositiveButton("Chiudi", null).create();
         dialog.getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
         dialog.show();
+    }
+
+    private String installedVersion() {
+        try {
+            String value = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+            return value == null || value.isEmpty() ? "sconosciuta" : value;
+        } catch (PackageManager.NameNotFoundException e) {
+            return "sconosciuta";
+        }
     }
 
     private void refreshRoots() {
@@ -125,7 +183,13 @@ public final class MainActivity extends Activity {
             catch (ApiException e) { Toast.makeText(this, e.code, Toast.LENGTH_LONG).show(); }
         }
     }
-    @Override protected void onResume() { super.onResume(); refreshRoots(); handler.post(refreshStatus); }
+    @Override protected void onResume() {
+        super.onResume();
+        refreshRoots();
+        handler.post(refreshStatus);
+        UpdateManager.resumePending(this, updateCallback);
+        UpdateManager.check(this, false, updateCallback);
+    }
     @Override protected void onPause() { handler.removeCallbacks(refreshStatus); super.onPause(); }
     private TextView text(LinearLayout parent, String value, int size) {
         TextView view = new TextView(this); view.setText(value); view.setTextSize(size); view.setPadding(0, 12, 0, 12); parent.addView(view); return view;

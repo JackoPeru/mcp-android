@@ -107,6 +107,17 @@ public final class RpcDispatcher {
         Point display = displaySize();
         try {
             result.put("service", "android-private-mcp");
+            try {
+                android.content.pm.PackageInfo packageInfo =
+                        context.getPackageManager().getPackageInfo(context.getPackageName(), 0);
+                result.put("versionName", packageInfo.versionName == null ? "" : packageInfo.versionName);
+                result.put("versionCode", packageInfo.getLongVersionCode());
+            } catch (android.content.pm.PackageManager.NameNotFoundException e) {
+                result.put("versionName", "");
+                result.put("versionCode", 0);
+            }
+            result.put("updateChannel", "github-stable");
+            result.put("updaterEnabled", true);
             result.put("running", McpForegroundService.isRunning());
             result.put("address", McpForegroundService.address());
             result.put("port", McpHttpServer.PORT);

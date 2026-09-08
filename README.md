@@ -15,7 +15,7 @@ La connessione usa HTTP sulla rete WireGuard cifrata di Tailscale, con token sep
 
 ## Installazione senza cavo
 
-APK disponibile: **`dist/mcp-android-0.5.0-debug.apk`**, con SHA-256 nel file accanto. È una build debug firmata per installazione personale, non una release Play Store.
+APK disponibile: **`dist/mcp-android-0.6.0-debug.apk`**, con SHA-256 nel file accanto. È una build debug firmata per installazione personale, non una release Play Store.
 
 1. Trasferisci l'APK al telefono, ad esempio con Tailscale Taildrop o il tuo servizio file, e aprilo dal telefono. Autorizza l'installazione per l'app da cui lo apri.
 2. Apri MCP Android e abilita il servizio Accessibilità nelle impostazioni Android. Per APK installati esternamente, Android può richiedere prima **Consenti impostazioni con restrizioni** nelle informazioni dell'app.
@@ -27,11 +27,30 @@ APK disponibile: **`dist/mcp-android-0.5.0-debug.apk`**, con SHA-256 nel file ac
 8. Sul PC, nella cartella del progetto, esegui `npm.cmd ci --ignore-scripts`.
 9. Adatta `mcp-config.example.json` alla configurazione MCP del tuo agente: sostituisci IP, porta e token con quelli del telefono. Il server è stdio: l'agente avvia `node bridge/server.js`, non serve un server HTTP sul PC.
 
+La v0.6.0 introduce l'updater interno. Se sul telefono è installata una versione precedente che non contiene l'updater, la v0.6.0 va installata manualmente una volta; da quel momento le versioni successive possono essere rilevate dall'app.
+
 Il token è una credenziale: conservarlo solo nella configurazione locale dell'agente. Non pubblicarlo, non inviarlo nelle conversazioni, non aggiungerlo a Git. Ruotandolo nell'app, la vecchia configurazione smette di autenticarsi.
 
 Mostrare il token o revocare una cartella ferma il servizio. Dopo aver completato la configurazione premi nuovamente **Avvia controllo remoto**. Al primo avvio Android può chiedere il permesso notifiche: concedilo e premi nuovamente Avvia.
 
 `avvia-mcp.cmd` è un avvio alternativo per client stdio; richiede `ANDROID_MCP_URL` e `ANDROID_MCP_TOKEN` nell'ambiente del processo. Non produce un'interfaccia interattiva nel terminale.
+
+## Aggiornamenti
+
+L'app controlla al massimo una volta ogni 24 ore la **latest stable release** di `JackoPeru/mcp-android`. È disponibile anche il pulsante **Controlla aggiornamenti** per forzare il controllo.
+
+La catena di aggiornamento applica questi vincoli:
+
+- endpoint release fisso su GitHub API e download solo tramite host GitHub consentiti;
+- tag release strettamente nel formato `vX.Y.Z`;
+- nomi asset obbligatori `mcp-android-X.Y.Z-debug.apk` e relativo `.sha256`;
+- download APK limitato a 100 MiB;
+- verifica SHA-256 prima di consegnare il pacchetto ad Android;
+- installazione tramite `PackageInstaller`, quindi Android verifica anche che la firma dell'APK sia compatibile con l'app installata;
+- nessuna installazione silenziosa: Android richiede la conferma dell'utente;
+- al primo aggiornamento Android può richiedere di autorizzare MCP Android come sorgente per l'installazione di APK.
+
+Il certificato che firma le release deve restare identico a quello usato dalla v0.5.0/v0.6.0. La workflow `.github/workflows/release.yml` verifica esplicitamente il fingerprint prima di pubblicare.
 
 ## Tool
 
@@ -103,9 +122,15 @@ npm.cmd run check
 ./build-android.ps1
 ```
 
-I test verificano configurazione privata, HTTP autenticato, timeout, limiti di risposta, redirect, schemi e discovery dei **47 tool MCP** tramite processo stdio. La build Android esegue anche unit test e lint. Un endpoint locale simulato copre il contratto, **non** prova gesti reali, clipboard, Notification Listener, Termux, Shizuku, provider SAF o connessione Tailscale su un telefono fisico. Build Android e risultati finali: `docs/acceptance.md`.
+I test verificano configurazione privata, HTTP autenticato, timeout, limiti di risposta, redirect, schemi, coerenza delle versioni e discovery dei **47 tool MCP** tramite processo stdio. La build Android esegue anche unit test e lint, inclusi test sulla comparazione semantica delle versioni usata dall'updater. Un endpoint locale simulato copre il contratto, **non** prova gesti reali, clipboard, Notification Listener, Termux, Shizuku, provider SAF, updater/installazione o connessione Tailscale su un telefono fisico. Build Android e risultati finali: `docs/acceptance.md`.
 
-Per ricompilare servono JDK 17 o successivo e Android SDK 35. `build-android.ps1` trova SDK e Java locali, incluso l'eventuale JDK portatile ignorato in `.tools/jdk17`, esegue build/test/lint e aggiorna APK e checksum in `dist`. Non cambia variabili di sistema né usa ADB. Il progetto include Gradle Wrapper.
+Per ricompilare servono JDK 17 o successivo e Android SDK 35. `build-android.ps1` trova SDK e Java locali, incluso l'eventuale JDK portatile ignorato in `.tools/jdk17`, esegue build/test/lint e aggiorna APK e checksum in `dist`. `publish-release.ps1` ripete le verifiche e pubblica la release GitHub dalla macchina locale. Non cambia variabili di sistema né usa ADB. Il progetto include Gradle Wrapper.
+
+La repository include inoltre:
+
+- `.github/workflows/ci.yml`: Node checks + test/lint/build Android su ogni push e pull request verso `main`;
+- `.github/workflows/release.yml`: release firmata avviabile manualmente da GitHub Actions; richiede il secret `ANDROID_DEBUG_KEYSTORE_B64` contenente **la stessa** chiave usata per le release esistenti;
+- `scripts/version-check.mjs`: impedisce di pubblicare versioni discordanti tra package Node, bridge MCP, Gradle, script APK e tag release.
 
 Prova sul telefono dopo installazione: stato → `ui_find`/`ui_click`/`ui_wait_for` + screenshot → clipboard → app list/intenti → Notification Listener e media → root SAF di prova con read/search/write/mkdir/rename/move/copy/delete → Termux status e `printf test` → Shizuku status e `id`/`printf test` → Stop e verifica che il UserService Shizuku venga disconnesso → disattiva i singoli permessi e verifica errori → ruota token → Stop e verifica disconnessione.
 

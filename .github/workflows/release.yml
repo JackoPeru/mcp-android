@@ -1,0 +1,89 @@
+name: Signed release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag, for example v0.6.0
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Require signing key secret
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_B64 }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "::error::ANDROID_DEBUG_KEYSTORE_B64 is not configured. Use the exact keystore that signed v0.5.0."
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - run: npm ci --ignore-scripts
+      - run: npm run check
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 35
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Restore stable Android signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_B64 }}
+        run: |
+          mkdir -p "$HOME/.android"
+          printf '%s' "$KEYSTORE_B64" | base64 --decode > "$HOME/.android/debug.keystore"
+          chmod 600 "$HOME/.android/debug.keystore"
+
+      - name: Verify signing certificate
+        run: |
+          actual="$(keytool -list -v -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey -keypass android | sed -n 's/.*SHA256: //p' | head -n1 | tr -d ':' | tr '[:upper:]' '[:lower:]')"
+          expected="7be7c380f31c81c050a86ea8cefd4ec3bd41972ddd864a8edb97b1e20c84823f"
+          test "$actual" = "$expected" || { echo "::error::Wrong signing certificate"; exit 1; }
+
+      - name: Build signed APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug --console=plain
+
+      - name: Prepare release assets
+        shell: bash
+        run: |
+          version="${RELEASE_TAG#v}"
+          apk="mcp-android-${version}-debug.apk"
+          cp android/app/build/outputs/apk/debug/app-debug.apk "$apk"
+          sha256sum "$apk" > "$apk.sha256"
+          apksigner verify --verbose "$apk"
+          echo "APK=$apk" >> "$GITHUB_ENV"
+
+      - name: Create or update GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "$APK" "$APK.sha256" --clobber
+          else
+            gh release create "$RELEASE_TAG" "$APK" "$APK.sha256" --title "MCP Android $RELEASE_TAG" --generate-notes
+          fi

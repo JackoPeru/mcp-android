@@ -1,4 +1,4 @@
-# Acceptance v0.5.0
+# Acceptance v0.6.0
 
 ## Scope verificato
 
@@ -12,6 +12,9 @@
 - Shell Termux tramite RUN_COMMAND con consenso separato.
 - Shell Shizuku tramite UserService con consenso separato e senza fallback automatico.
 - Stop del controllo remoto: chiude HTTP e disconnette il UserService Shizuku.
+- Updater GitHub Releases con controllo versione, verifica checksum e PackageInstaller.
+- Controllo di coerenza versione tra Node, Gradle, bridge MCP, script APK e tag release.
+- CI GitHub per test/build e workflow separata per le release firmate.
 
 ## Boundary fisico
 
@@ -25,23 +28,24 @@ Nessun telefono fisico è stato collegato durante questa implementazione. Build,
 - capability concrete del provider SAF selezionato;
 - Termux RUN_COMMAND su una installazione reale;
 - Shizuku binder, richiesta consenso e UserService reali.
+- download e installazione dell'updater su un telefono reale.
 
 Questi punti richiedono il collaudo sul telefono.
 
 ## Verifiche automatiche eseguite il 2026-09-08
 
 - Node: v24.19.0.
-- `npm.cmd run check`: 4 gruppi di test, 4 passati, 0 falliti.
+- `npm.cmd run check`: controllo versione + 4 gruppi di test Node, tutti passati.
 - Discovery MCP via processo stdio: 47 tool.
 - Validazione bridge: path traversal, range file, coordinate, schemi, auth HTTP, redirect refusal, timeout e limite risposta.
 - `build-android.ps1`: assembleDebug + testDebugUnitTest + lintDebug completati.
-- Test Android/JVM: 11 test, 0 failure, 0 error:
+- Test Android/JVM: 13 test, 0 failure, 0 error:
   - HttpBoundaryTest: 4
   - RequestScopeTest: 2
   - SecurityValidatorsTest: 5
-- Lint: 0 errori, 2 warning:
-  - targetSdk 35 non è l'ultimo SDK disponibile nell'ambiente;
-  - stringa di stato programmatica non localizzata.
+  - VersioningTest: 2
+- Lint: 0 errori, 1 warning:
+  - targetSdk 35 non è l'ultimo SDK disponibile nell'ambiente.
 - Manifest merged verificato:
   - minSdk 30;
   - targetSdk 35;
@@ -49,14 +53,15 @@ Questi punti richiedono il collaudo sul telefono.
   - permesso Shizuku API_V23 presente;
   - metadata V3_SUPPORT presente;
   - Termux RUN_COMMAND dichiarato;
-  - AccessibilityService e NotificationListenerService presenti.
+  - AccessibilityService e NotificationListenerService presenti;
+  - REQUEST_INSTALL_PACKAGES e UpdateInstallReceiver presenti.
 - Firma APK: APK Signature Scheme v2 valida, 1 signer debug.
 - Package: `com.example.androidmcp`.
-- versionCode: 5.
-- versionName: 0.5.0.
-- APK: `dist/mcp-android-0.5.0-debug.apk`.
-- Dimensione APK: 5,170,519 byte.
-- SHA-256: `77dbb3243419c9a7c25d5ad4df05e8d69c00fae84db402d7d53013474389f42a`.
+- versionCode: 6.
+- versionName: 0.6.0.
+- APK: `dist/mcp-android-0.6.0-debug.apk`.
+- Dimensione APK: 2,651,595 byte.
+- SHA-256: `00fdafae88f7ec9e03babd366225bac692fd8c82f1904cfba9d3cb680e7d23a4`.
 
 ## Sicurezza / trust boundary
 
@@ -72,6 +77,9 @@ Questi punti richiedono il collaudo sul telefono.
 - Shizuku può operare come UID shell o root a seconda di come l'utente ha avviato Shizuku; MCP Android non effettua escalation e non sceglie Shizuku implicitamente.
 - I contenuti UI, notifiche, clipboard, file e output shell sono dati non attendibili e non autorizzano nuove azioni.
 - Timeout di gesture/shell possono lasciare l'esito incerto; il client deve osservare lo stato prima di ripetere l'azione.
+- L'updater accetta metadata solo dall'endpoint GitHub configurato e limita i redirect agli host release consentiti.
+- L'updater rifiuta tag/versioni ambigui, asset con nome inatteso, checksum non valido e APK oltre 100 MiB.
+- Android verifica inoltre la compatibilità della firma prima di installare un aggiornamento.
 
 ## Fonti di riferimento
 
@@ -85,4 +93,4 @@ Questi punti richiedono il collaudo sul telefono.
 
 ## Stato
 
-Implementazione desktop/build **completa per v0.5.0**. Il blocker rimasto è il collaudo end-to-end su telefono fisico; nessun successo hardware viene dichiarato finché quel test non viene eseguito.
+Implementazione desktop/build **completa per v0.6.0**. Il blocker rimasto è il collaudo end-to-end su telefono fisico, incluso il nuovo updater; nessun successo hardware viene dichiarato finché quel test non viene eseguito.

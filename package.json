@@ -1,13 +1,14 @@
 {
   "name": "android-private-mcp",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": true,
   "type": "module",
   "engines": { "node": ">=22" },
   "scripts": {
     "start": "node bridge/server.js",
     "test": "node --test tests/*.test.js",
-    "check": "node --check bridge/client.js && node --check bridge/server.js && npm test"
+    "version:check": "node scripts/version-check.mjs",
+    "check": "npm run version:check && node --check bridge/client.js && node --check bridge/server.js && npm test"
   },
   "dependencies": { "@modelcontextprotocol/sdk": "1.30.0", "zod": "4.5.4" }
 }
