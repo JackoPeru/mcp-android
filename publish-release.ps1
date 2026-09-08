@@ -47,7 +47,10 @@ try {
     gh auth status | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'GitHub CLI non autenticata.' }
 
-    gh release view $tag --repo JackoPeru/mcp-android *> $null
+    # Let cmd.exe absorb gh's expected stderr when the release does not exist.
+    # With ErrorActionPreference=Stop, invoking gh directly would turn that
+    # normal "release not found" probe into a terminating PowerShell error.
+    & cmd.exe /d /c "gh release view $tag --repo JackoPeru/mcp-android >nul 2>nul"
     if ($LASTEXITCODE -eq 0) {
         throw "La release $tag esiste già ed è immutabile."
     }
