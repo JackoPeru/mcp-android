@@ -131,8 +131,12 @@ public final class RpcDispatcher {
             result.put("updateChannel", "github-stable");
             result.put("updaterEnabled", true);
             result.put("running", McpForegroundService.isRunning());
+            result.put("serviceState", McpForegroundService.state());
             result.put("address", McpForegroundService.address());
             result.put("port", McpHttpServer.PORT);
+            result.put("activeRequests", McpForegroundService.activeRequests());
+            result.put("queuedRequests", McpForegroundService.queuedRequests());
+            result.put("requestDeadlineMs", McpHttpServer.requestDeadlineMs());
             result.put("accessibilityEnabled", McpAccessibilityService.active() != null);
             result.put("notificationAccess", McpNotificationService.active() != null);
             result.put("termuxShellAvailable",

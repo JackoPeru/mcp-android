@@ -139,6 +139,20 @@ public final class McpHttpServer {
         return current == null ? "" : current.getHostAddress();
     }
 
+    public int activeRequests() {
+        ThreadPoolExecutor pool = executor;
+        return pool == null ? 0 : pool.getActiveCount();
+    }
+
+    public int queuedRequests() {
+        ThreadPoolExecutor pool = executor;
+        return pool == null ? 0 : pool.getQueue().size();
+    }
+
+    public static int requestDeadlineMs() {
+        return REQUEST_DEADLINE_MS;
+    }
+
     private void acceptLoop() {
         while (running.get()) {
             Socket client;
