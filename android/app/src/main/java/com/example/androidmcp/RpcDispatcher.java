@@ -153,6 +153,10 @@ public final class RpcDispatcher {
             result.put("serviceState", McpForegroundService.state());
             result.put("address", McpForegroundService.address());
             result.put("port", McpHttpServer.PORT);
+            JSONObject transport = McpForegroundService.transportStatus();
+            result.put("endpoints", transport.optJSONObject("endpoints"));
+            result.put("preferredTransport", transport.optString("preferredTransport", "none"));
+            result.put("networkMonitoring", McpForegroundService.networkMonitoringMode());
             result.put("activeRequests", McpForegroundService.activeRequests());
             result.put("queuedRequests", McpForegroundService.queuedRequests());
             result.put("requestDeadlineMs", McpHttpServer.requestDeadlineMs());
@@ -850,10 +854,16 @@ public final class RpcDispatcher {
         JSONObject result = new JSONObject();
         try {
             long eventTime = EventJournal.lastEventTimeMs();
+            JSONObject transport = McpForegroundService.transportStatus();
+            JSONObject endpoints = transport.optJSONObject("endpoints");
+            JSONObject tailscale = endpoints == null ? null : endpoints.optJSONObject("tailscale");
             result.put("service", new JSONObject()
                     .put("state", McpForegroundService.state())
                     .put("running", McpForegroundService.isRunning())
-                    .put("tailscaleAddress", McpForegroundService.address())
+                    .put("address", McpForegroundService.address())
+                    .put("tailscaleAddress", tailscale == null ? "" : tailscale.optString("address", ""))
+                    .put("endpoints", endpoints == null ? new JSONObject() : endpoints)
+                    .put("preferredTransport", transport.optString("preferredTransport", "none"))
                     .put("networkMonitoring", McpForegroundService.networkMonitoringMode())
                     .put("error", McpForegroundService.error())
                     .put("activeRequests", McpForegroundService.activeRequests())

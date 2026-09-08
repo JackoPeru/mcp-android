@@ -7,6 +7,7 @@ const read = path => fs.readFileSync(path, 'utf8');
 test('optional privileged backends are lazy and accessibility XML is not all-events', () => {
   const activity = read('android/app/src/main/java/com/example/androidmcp/MainActivity.java');
   const foreground = read('android/app/src/main/java/com/example/androidmcp/McpForegroundService.java');
+  const transportManager = read('android/app/src/main/java/com/example/androidmcp/TransportManager.java');
   const shizuku = read('android/app/src/main/java/com/example/androidmcp/ShizukuBridge.java');
   const accessibilityXml = read('android/app/src/main/res/xml/accessibility_service.xml');
   const idleStart = foreground.indexOf('private void enterLowPowerIdle()');
@@ -19,7 +20,10 @@ test('optional privileged backends are lazy and accessibility XML is not all-eve
   assert.doesNotMatch(activity, /ShizukuBridge\.initialize\(this\)/);
   assert.doesNotMatch(foreground, /ShizukuBridge\.initialize\(this\)/);
   assert.doesNotMatch(accessibilityXml, /typeAllMask/);
-  assert.match(idleBlock, /unregisterNetworkCallback/);
+  assert.match(idleBlock, /transportManager\.stop\(\)/);
+  assert.match(transportManager, /unregisterNetworkCallback/);
+  assert.match(transportManager, /TRANSPORT_WIFI/);
+  assert.match(transportManager, /TRANSPORT_VPN/);
   assert.match(stopBlock, /current\.enterLowPowerIdle\(\)/);
   assert.match(shizuku, /removeBinderDeadListener/);
 });
