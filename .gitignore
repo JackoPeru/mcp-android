@@ -9,3 +9,5 @@ android/local.properties
 .tools/
 dist/*.apk
 dist/*.apk.sha256
+
+.worktrees/
