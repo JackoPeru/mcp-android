@@ -11,6 +11,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Inet4Address;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -39,6 +40,8 @@ public final class McpHttpServer {
     static final int REQUEST_DEADLINE_MS = 25_000;
     private final Context context;
     private final RpcDispatcher dispatcher;
+    private final TransportEndpoint configuredEndpoint;
+    private final RpcEndpointServer.ClientPolicy clientPolicy;
     private final AtomicBoolean running = new AtomicBoolean();
     private final Map<Socket, RequestScope> clients = new ConcurrentHashMap<>();
     private volatile ServerSocket serverSocket;
@@ -49,19 +52,42 @@ public final class McpHttpServer {
     public McpHttpServer(Context context) {
         this.context = context.getApplicationContext();
         dispatcher = new RpcDispatcher(this.context);
+        configuredEndpoint = null;
+        clientPolicy = RpcEndpointServer.tailscaleClientPolicy();
+    }
+
+    McpHttpServer(Context context, RpcDispatcher dispatcher, TransportEndpoint endpoint,
+                  RpcEndpointServer.ClientPolicy clientPolicy) {
+        if (dispatcher == null || endpoint == null || clientPolicy == null) {
+            throw new IllegalArgumentException("RPC endpoint configuration required");
+        }
+        this.context = context.getApplicationContext();
+        this.dispatcher = dispatcher;
+        this.configuredEndpoint = endpoint;
+        this.clientPolicy = clientPolicy;
     }
 
     public synchronized void start() throws IOException {
         if (running.get()) {
             return;
         }
-        Inet4Address bindAddress = TailscaleAddress.find(context);
+        Inet4Address bindAddress;
+        int bindPort;
+        if (configuredEndpoint == null) {
+            bindAddress = TailscaleAddress.find(context);
+            bindPort = PORT;
+        } else {
+            InetAddress resolved = InetAddress.getByName(configuredEndpoint.address);
+            if (!(resolved instanceof Inet4Address)) throw new IOException("IPv4 endpoint required");
+            bindAddress = (Inet4Address) resolved;
+            bindPort = configuredEndpoint.port;
+        }
         ServerSocket socket = new ServerSocket();
         ThreadPoolExecutor pool = null;
         ScheduledExecutorService timeoutPool = null;
         try {
             socket.setReuseAddress(true);
-            socket.bind(new InetSocketAddress(bindAddress, PORT), 32);
+            socket.bind(new InetSocketAddress(bindAddress, bindPort), 32);
             pool = new ThreadPoolExecutor(
                     0, 4, 30L, TimeUnit.SECONDS, new ArrayBlockingQueue<>(16),
                     runnable -> {
@@ -169,6 +195,11 @@ public final class McpHttpServer {
                     return;
                 }
                 client = socket.accept();
+                String remote = client.getInetAddress() == null ? "" : client.getInetAddress().getHostAddress();
+                if (!clientPolicy.allow(remote)) {
+                    close(client);
+                    continue;
+                }
                 scope = new RequestScope(REQUEST_DEADLINE_MS);
                 synchronized (this) {
                     if (!running.get()) { close(client); continue; }
