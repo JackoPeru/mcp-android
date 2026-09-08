@@ -52,21 +52,34 @@ public final class McpAccessibilityService extends AccessibilityService {
     @Override
     protected void onServiceConnected() {
         super.onServiceConnected();
+        ACTIVE.set(this);
+        applySessionEventMask(McpForegroundService.sessionEnabled());
+    }
+
+    static void setRemoteSessionActive(boolean active) {
+        McpAccessibilityService service = ACTIVE.get();
+        if (service == null) return;
+        service.main.post(() -> {
+            if (ACTIVE.get() == service) service.applySessionEventMask(active);
+        });
+    }
+
+    private void applySessionEventMask(boolean active) {
         AccessibilityServiceInfo info = getServiceInfo();
         if (info == null) {
             info = new AccessibilityServiceInfo();
         }
-        info.eventTypes = trackedEventTypes();
+        info.eventTypes = LowPowerSessionPolicy.accessibilityEventTypes(active);
         info.feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC;
         info.notificationTimeout = 100;
         info.flags |= AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
                 | AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS;
         setServiceInfo(info);
-        ACTIVE.set(this);
     }
 
     @Override
     public void onAccessibilityEvent(android.view.accessibility.AccessibilityEvent event) {
+        if (!McpForegroundService.sessionEnabled()) return;
         // Do not persist event text. Only metadata is kept in a bounded in-memory journal.
         if (event != null) {
             String packageName = String.valueOf(event.getPackageName());

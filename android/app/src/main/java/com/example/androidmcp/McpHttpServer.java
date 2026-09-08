@@ -74,7 +74,7 @@ public final class McpHttpServer {
                 thread.setDaemon(true);
                 return thread;
             });
-            scheduler.setRemoveOnCancelPolicy(true);
+            configureTimeoutScheduler(scheduler);
             timeoutPool = scheduler;
             address = bindAddress;
             serverSocket = socket;
@@ -151,6 +151,12 @@ public final class McpHttpServer {
 
     public static int requestDeadlineMs() {
         return REQUEST_DEADLINE_MS;
+    }
+
+    static void configureTimeoutScheduler(ScheduledThreadPoolExecutor scheduler) {
+        scheduler.setRemoveOnCancelPolicy(true);
+        scheduler.setKeepAliveTime(30L, TimeUnit.SECONDS);
+        scheduler.allowCoreThreadTimeOut(true);
     }
 
     private void acceptLoop() {

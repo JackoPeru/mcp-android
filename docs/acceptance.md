@@ -1,4 +1,4 @@
-# Acceptance v0.7.1
+# Acceptance v0.7.2
 
 ## Scope verificato
 
@@ -23,18 +23,24 @@
 - Shell Termux tramite RUN_COMMAND con consenso separato.
 - Shell Shizuku tramite UserService con consenso separato e senza fallback automatico.
 - Operazioni Shizuku nominate: `force_stop_app` e `logcat` bounded/redatto.
-- Stop del controllo remoto: chiude HTTP e disconnette il UserService Shizuku.
+- Stop del controllo remoto: chiude HTTP, unregistera callback/watchdog VPN, azzera gli eventTypes Accessibility, richiede unbind del Notification Listener e disconnette completamente Shizuku.
 - Updater GitHub Releases con controllo versione, verifica checksum e PackageInstaller.
 - Verifica preventiva dell'APK candidato: package, versionName, versionCode e signer SHA-256.
 - Controllo di coerenza versione tra Node, Gradle, bridge MCP, script APK e tag release.
 - CI GitHub per test/build e workflow separata per release firmate e immutabili.
 - RPC separato in domini di concorrenza UI, FILE e SHELL; wait/event read-only senza lock UI.
 - Recovery automatica del socket MCP dopo perdita/ritorno di Tailscale.
-- Profilo energetico v0.7.1:
+- Profilo energetico v0.7.2:
   - monitor VPN event-driven via ConnectivityManager.NetworkCallback;
-  - watchdog Tailscale ridotto a 1 controllo/60 s invece di 1/2 s;
-  - Accessibility limitata agli eventi necessari + notificationTimeout 100 ms;
+  - watchdog Tailscale ridotto a 1 controllo/15 min invece di 1/2 s;
+  - STOP imposta Accessibility eventTypes=0 mantenendo il grant utente;
+  - START ripristina solo gli eventi UI necessari + notificationTimeout 100 ms;
+  - Notification Listener requestUnbind() allo STOP e requestRebind() allo START;
+  - Shizuku completamente lazy: nessuna init aprendo l'app/avviando MCP se non viene usato;
+  - binder listener Shizuku rimosso allo STOP;
   - pool RPC con 0 worker permanenti in idle;
+  - timeout scheduler RPC lascia morire il core worker dopo 30 s di idle;
+  - updater con 0 core worker e max 1 worker che termina dopo 30 s di idle;
   - polling semantico dei wait ridotto da 100 ms a 250 ms.
 
 ## Boundary fisico
@@ -62,12 +68,12 @@ Questi punti richiedono il collaudo sul telefono.
 ## Verifiche automatiche eseguite il 2026-09-08
 
 - Node: v24.19.0.
-- `npm.cmd run check`: controllo versione + **5 test Node, tutti passati**.
+- `npm.cmd run check`: controllo versione + **6 test Node, tutti passati**.
 - Discovery MCP via processo stdio: **65 tool**.
 - Validazione bridge: path traversal, range file, coordinate, schemi, auth HTTP, redirect refusal, timeout e limite risposta.
 - Validazione v0.7 lato Node: flow non ammessi respinti prima della RPC, composite action allowlist e discovery dei nuovi tool.
 - `build-android.ps1`: assembleDebug + testDebugUnitTest + lintDebug completati.
-- Test Android/JVM: **45 test, 0 failure, 0 error, 0 skipped**:
+- Test Android/JVM: **50 test, 0 failure, 0 error, 0 skipped**:
   - ActionRegistryTest: 2
   - ApkIdentityValidationTest: 4
   - CapabilityRouterTest: 3
@@ -75,6 +81,8 @@ Questi punti richiedono il collaudo sul telefono.
   - FlowTraceTest: 1
   - FlowValidationTest: 4
   - HttpBoundaryTest: 4
+  - IdleExecutorPolicyTest: 2
+  - LowPowerSessionPolicyTest: 3
   - NetworkRecoveryPolicyTest: 3
   - RequestScopeTest: 3
   - RpcPolicyTest: 2
@@ -100,11 +108,11 @@ Questi punti richiedono il collaudo sul telefono.
   - 1 signer;
   - Android Debug, RSA 2048.
 - Package: `com.example.androidmcp`.
-- versionCode: **9**.
-- versionName: **0.7.1**.
-- APK: `dist/mcp-android-0.7.1-debug.apk`.
-- Dimensione APK: **2,712,263 byte**.
-- SHA-256: `53321b8ccb258abb2ce1a7a0ca8dfe63741faf922921aedb56a764fdb39057bb`.
+- versionCode: **10**.
+- versionName: **0.7.2**.
+- APK: `dist/mcp-android-0.7.2-debug.apk`.
+- Dimensione APK: **2,715,115 byte**.
+- SHA-256: `1945e241a0fcf184bc292753c0a834d4583641b94ed448609e0453fc2685363d`.
 - Certificato signer SHA-256: `7be7c380f31c81c050a86ea8cefd4ec3bd41972ddd864a8edb97b1e20c84823f`.
 - Il signer coincide con il fingerprint atteso dalla release workflow e dalle release precedenti compatibili con l'updater.
 
@@ -136,9 +144,12 @@ Questi punti richiedono il collaudo sul telefono.
 - `events_wait`, `wait_idle`, `wait_change`, `wait_activity`, diagnostics e altre letture non occupano il lock UI; filesystem, UI e shell sono serializzati solo nei rispettivi domini.
 - Timeout: 8 s per I/O socket, **25 s** deadline richiesta sul telefono, **30 s** timeout bridge PC; il flow resta limitato a **20 s**.
 - Una perdita temporanea di Tailscale non termina il foreground service: il socket viene chiuso e riaperto automaticamente quando la VPN torna.
-- Il monitor Tailscale non esegue più discovery ogni 2 secondi. Le variazioni VPN attivano una callback event-driven; resta un watchdog ogni 60 secondi come fallback.
+- Il monitor Tailscale non esegue più discovery ogni 2 secondi. Le variazioni VPN attivano una callback event-driven; resta un watchdog ogni 15 minuti come fallback.
 - Il server HTTP resta bloccato su `accept()` in idle e il pool RPC non mantiene worker permanenti senza richieste.
-- Accessibility non usa più `TYPES_ALL_MASK`: vengono ricevute solo le classi di evento necessarie al controllo/sincronizzazione UI.
+- Accessibility non usa più `TYPES_ALL_MASK`: durante una sessione vengono ricevute solo le classi necessarie; con controllo remoto STOP gli eventTypes vengono impostati a 0.
+- Il Notification Listener viene unbound allo STOP e richiesto nuovamente solo quando parte una sessione remota.
+- Shizuku non viene inizializzato dall'apertura dell'app o dall'avvio del foreground service; viene inizializzato solo da status/permission/execute Shizuku e viene completamente disconnesso allo STOP.
+- Il worker dell'updater e il timeout scheduler RPC non rimangono residenti indefinitamente dopo aver finito il lavoro.
 
 ## Fonti di riferimento
 
@@ -152,4 +163,4 @@ Questi punti richiedono il collaudo sul telefono.
 
 ## Stato
 
-Implementazione desktop/build **completa per v0.7.1**. Il codice soddisfa i milestone v0.7 previsti dalla spec e include il pass di ottimizzazione energetica. Non viene dichiarato un consumo batteria percentuale senza collaudo su telefono fisico; Tailscale, schermo acceso e frequenza delle automazioni possono incidere più del processo MCP stesso. WebView/CDP completo, visual locator automatico e profili app restano superfici opzionali/future. Il blocker rimasto è il collaudo end-to-end su telefono fisico; nessun successo hardware viene dichiarato finché quel test non viene eseguito.
+Implementazione desktop/build **completa per v0.7.2**. Il codice soddisfa i milestone v0.7 previsti dalla spec e include il pass ultra-low-power. Con STOP non restano polling MCP, callback/watchdog VPN, Notification Listener bound, eventi Accessibility richiesti o backend Shizuku inizializzati; il grant Accessibility può comunque mantenere il servizio residente in RAM senza loop CPU MCP. Non viene dichiarato un consumo batteria percentuale senza collaudo su telefono fisico; Tailscale, schermo acceso e frequenza delle automazioni possono incidere più del processo MCP stesso. WebView/CDP completo, visual locator automatico e profili app restano superfici opzionali/future. Il blocker rimasto è il collaudo end-to-end su telefono fisico; nessun successo hardware viene dichiarato finché quel test non viene eseguito.

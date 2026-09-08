@@ -147,7 +147,7 @@ const definitions = [
 ];
 
 export function createMcpServer(client) {
-  const server = new McpServer({ name: 'android-private-mcp', version: '0.7.1' });
+  const server = new McpServer({ name: 'android-private-mcp', version: '0.7.2' });
   const schemas = new Map();
   for (const [method, description, shape, readOnly] of definitions) {
     const schema = z.object(shape).strict();

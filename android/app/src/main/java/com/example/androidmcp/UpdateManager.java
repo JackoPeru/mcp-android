@@ -33,8 +33,7 @@ import java.security.MessageDigest;
 import java.util.HashSet;
 import java.util.Locale;
 import java.util.Set;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Secure updater for public GitHub Releases. Android still requires user confirmation to install. */
@@ -49,7 +48,8 @@ public final class UpdateManager {
     private static final int MAX_JSON_BYTES = 512 * 1024;
     private static final int MAX_HASH_BYTES = 4096;
     private static final int MAX_REDIRECTS = 5;
-    private static final ExecutorService EXECUTOR = Executors.newSingleThreadExecutor();
+    private static final ThreadPoolExecutor EXECUTOR =
+            LowPowerSessionPolicy.createSingleIdleWorkerExecutor("android-mcp-updater");
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static final AtomicBoolean INSTALLING = new AtomicBoolean(false);
     private static final Set<String> DOWNLOAD_HOSTS = new HashSet<>();

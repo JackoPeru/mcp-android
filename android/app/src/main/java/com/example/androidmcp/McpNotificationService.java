@@ -3,6 +3,8 @@ package com.example.androidmcp;
 import android.app.Notification;
 import android.app.PendingIntent;
 import android.app.RemoteInput;
+import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
 import android.service.notification.NotificationListenerService;
@@ -21,15 +23,38 @@ public final class McpNotificationService extends NotificationListenerService {
 
     public static McpNotificationService active() { return ACTIVE.get(); }
 
+    static void resumeForSession(Context context) {
+        if (!LowPowerSessionPolicy.notificationListenerActive(true)) return;
+        try {
+            requestRebind(new ComponentName(context.getApplicationContext(), McpNotificationService.class));
+        } catch (RuntimeException ignored) {
+            // Permission may not be granted; capability reporting will show it unavailable.
+        }
+    }
+
+    static void suspendForIdle() {
+        McpNotificationService current = ACTIVE.get();
+        if (current == null) return;
+        try { current.requestUnbind(); }
+        catch (RuntimeException ignored) { }
+    }
+
     @Override public void onListenerConnected() {
         super.onListenerConnected();
+        if (!LowPowerSessionPolicy.notificationListenerActive(McpForegroundService.sessionEnabled())) {
+            ACTIVE.compareAndSet(this, null);
+            try { requestUnbind(); } catch (RuntimeException ignored) { }
+            return;
+        }
         ACTIVE.set(this);
         EventJournal.add("notification_access", getPackageName(), "connected");
     }
 
     @Override public void onListenerDisconnected() {
         ACTIVE.compareAndSet(this, null);
-        EventJournal.add("notification_access", getPackageName(), "disconnected");
+        if (McpForegroundService.sessionEnabled()) {
+            EventJournal.add("notification_access", getPackageName(), "disconnected");
+        }
         super.onListenerDisconnected();
     }
 
@@ -39,13 +64,15 @@ public final class McpNotificationService extends NotificationListenerService {
     }
 
     @Override public void onNotificationPosted(StatusBarNotification sbn) {
-        if (sbn != null && !getPackageName().equals(sbn.getPackageName())) {
+        if (McpForegroundService.sessionEnabled()
+                && sbn != null && !getPackageName().equals(sbn.getPackageName())) {
             EventJournal.add("notification_posted", sbn.getPackageName(), "");
         }
     }
 
     @Override public void onNotificationRemoved(StatusBarNotification sbn) {
-        if (sbn != null && !getPackageName().equals(sbn.getPackageName())) {
+        if (McpForegroundService.sessionEnabled()
+                && sbn != null && !getPackageName().equals(sbn.getPackageName())) {
             EventJournal.add("notification_removed", sbn.getPackageName(), "");
         }
     }

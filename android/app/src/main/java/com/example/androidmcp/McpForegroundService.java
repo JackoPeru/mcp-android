@@ -19,9 +19,10 @@ import android.os.IBinder;
 /** User-started remote session, visible notification, no automatic restart or boot receiver. */
 public final class McpForegroundService extends Service {
     private static final long VPN_EVENT_DEBOUNCE_MS = 250L;
-    private static final long NETWORK_WATCHDOG_MS = 60_000L;
+    private static final long NETWORK_WATCHDOG_MS = LowPowerSessionPolicy.networkWatchdogMs();
     private static volatile McpForegroundService instance;
     private static volatile String lastError = "";
+    private static volatile boolean sessionEnabled;
     private McpHttpServer server;
     private volatile boolean reconnecting;
     private ConnectivityManager connectivity;
@@ -38,11 +39,17 @@ public final class McpForegroundService extends Service {
 
     @Override public void onCreate() {
         super.onCreate();
-        ShizukuBridge.initialize(this);
         instance = this;
     }
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
-        if (intent == null || "STOP".equals(intent.getAction())) { stopSelf(); return START_NOT_STICKY; }
+        if (intent == null || "STOP".equals(intent.getAction())) {
+            enterLowPowerIdle();
+            stopSelf();
+            return START_NOT_STICKY;
+        }
+        sessionEnabled = true;
+        McpAccessibilityService.setRemoteSessionActive(true);
+        McpNotificationService.resumeForSession(this);
         if (server != null && server.isRunning()) return START_NOT_STICKY;
         NotificationManager manager = getSystemService(NotificationManager.class);
         manager.createNotificationChannel(new NotificationChannel("remote", "Controllo remoto", NotificationManager.IMPORTANCE_LOW));
@@ -68,6 +75,7 @@ public final class McpForegroundService extends Service {
             startNetworkMonitoring();
         } catch (Exception e) {
             lastError = "Avvio fallito: impossibile inizializzare il controllo remoto.";
+            enterLowPowerIdle();
             stopSelf();
         }
         return START_NOT_STICKY;
@@ -76,11 +84,17 @@ public final class McpForegroundService extends Service {
         McpForegroundService current = instance;
         ShizukuBridge.disconnect();
         if (current != null) {
+            current.enterLowPowerIdle();
             if (current.server != null) current.server.stop();
             current.stopSelf();
+        } else {
+            sessionEnabled = false;
+            McpAccessibilityService.setRemoteSessionActive(false);
+            McpNotificationService.suspendForIdle();
         }
     }
     static boolean isRunning() { McpForegroundService value = instance; return value != null && value.server != null && value.server.isRunning(); }
+    static boolean sessionEnabled() { return sessionEnabled; }
     static String address() { McpForegroundService value = instance; return value == null || value.server == null ? "" : value.server.address(); }
     static String error() { return lastError; }
     static String state() {
@@ -186,7 +200,22 @@ public final class McpForegroundService extends Service {
     }
 
     @Override public void onDestroy() {
+        enterLowPowerIdle();
         handler.removeCallbacksAndMessages(null);
+        if (server != null) server.stop();
+        ShizukuBridge.disconnect();
+        reconnecting = false;
+        instance = null;
+        stopForeground(STOP_FOREGROUND_REMOVE);
+        super.onDestroy();
+    }
+
+    private void enterLowPowerIdle() {
+        sessionEnabled = false;
+        McpAccessibilityService.setRemoteSessionActive(false);
+        McpNotificationService.suspendForIdle();
+        handler.removeCallbacks(networkWatchdog);
+        handler.removeCallbacks(networkReconcile);
         if (connectivity != null && vpnCallback != null) {
             try { connectivity.unregisterNetworkCallback(vpnCallback); }
             catch (RuntimeException ignored) { }
@@ -194,12 +223,6 @@ public final class McpForegroundService extends Service {
         vpnCallback = null;
         connectivity = null;
         networkMonitoringStarted = false;
-        if (server != null) server.stop();
-        ShizukuBridge.disconnect();
-        reconnecting = false;
-        instance = null;
-        stopForeground(STOP_FOREGROUND_REMOVE);
-        super.onDestroy();
     }
     @Override public IBinder onBind(Intent intent) { return null; }
 }

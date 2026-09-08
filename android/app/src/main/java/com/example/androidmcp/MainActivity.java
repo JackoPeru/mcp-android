@@ -60,7 +60,6 @@ public final class MainActivity extends Activity {
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
-        ShizukuBridge.initialize(this);
         roots = new FileRootStore(this);
         ScrollView scroll = new ScrollView(this);
         LinearLayout layout = new LinearLayout(this);

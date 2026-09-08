@@ -143,6 +143,12 @@ public final class ShizukuBridge {
                 try { Shizuku.unbindUserService(serviceArgs, CONNECTION, true); }
                 catch (RuntimeException ignored) { }
             }
+            if (appContext != null) {
+                try { Shizuku.removeBinderDeadListener(BINDER_DEAD); }
+                catch (RuntimeException ignored) { }
+            }
+            serviceArgs = null;
+            appContext = null;
         }
     }
 

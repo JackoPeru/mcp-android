@@ -15,7 +15,7 @@ La connessione usa HTTP sulla rete WireGuard cifrata di Tailscale, con token sep
 
 ## Installazione senza cavo
 
-APK disponibile: **`dist/mcp-android-0.7.1-debug.apk`**, con SHA-256 nel file accanto. È una build debug firmata per installazione personale, non una release Play Store.
+APK disponibile: **`dist/mcp-android-0.7.2-debug.apk`**, con SHA-256 nel file accanto. È una build debug firmata per installazione personale, non una release Play Store.
 
 1. Trasferisci l'APK al telefono, ad esempio con Tailscale Taildrop o il tuo servizio file, e aprilo dal telefono. Autorizza l'installazione per l'app da cui lo apri.
 2. Apri MCP Android e abilita il servizio Accessibilità nelle impostazioni Android. Per APK installati esternamente, Android può richiedere prima **Consenti impostazioni con restrizioni** nelle informazioni dell'app.
@@ -130,21 +130,26 @@ Le operazioni concorrenti sono separate per dominio: filesystem, UI e shell hann
 - `webViewDetected` segnala WebView-like nodes nel contesto semantico; ispezione CDP completa e visual locator automatico non fanno parte della v0.7.
 - Fermando il controllo remoto viene anche smontato il UserService Shizuku.
 - Le funzioni standard non richiedono Shizuku, root o ADB.
-- Se Tailscale cade temporaneamente, il foreground service resta vivo in stato `reconnecting`, chiude solo il socket MCP e riprova automaticamente ogni 5 secondi. Quando Tailscale ritorna, il server si riapre senza dover premere nuovamente Avvia. Android o il produttore possono comunque terminare il processo; la notifica e il pulsante Stop rendono visibile e revocabile il controllo.
+- Se Tailscale cade temporaneamente, il foreground service resta vivo in stato `reconnecting` e chiude solo il socket MCP. Il ritorno/cambio della VPN viene rilevato tramite callback Android e il server si riapre senza dover premere nuovamente Avvia; un watchdog raro ogni 15 minuti resta solo come fallback se il produttore perdesse una callback. Android o il produttore possono comunque terminare il processo; la notifica e il pulsante Stop rendono visibile e revocabile il controllo.
 
 ## Consumo batteria
 
-La v0.7.1 riduce il lavoro in background al minimo pratico:
+La v0.7.2 porta il processo in modalità ultra-low-power fuori da una sessione remota:
 
 - il server HTTP resta bloccato su `accept()` quando non arrivano richieste, quindi non esegue polling;
 - il pool RPC mantiene **0 worker permanenti** a riposo e crea thread solo quando arriva una richiesta;
 - Tailscale viene seguito tramite `ConnectivityManager.NetworkCallback`; il vecchio controllo ogni 2 secondi è stato rimosso;
-- resta solo un watchdog di sicurezza ogni 60 secondi, quindi da 1.800 controlli/ora a 60 controlli/ora in assenza di eventi VPN;
-- Accessibility ascolta solo gli eventi utili al controllo UI, non più `TYPES_ALL_MASK`, e raggruppa gli eventi con `notificationTimeout=100 ms`;
+- resta solo un watchdog di sicurezza ogni 15 minuti: da 1.800 controlli/ora del vecchio polling a **4 controlli/ora** in assenza di eventi VPN;
+- quando premi **STOP**, Accessibility imposta `eventTypes=0`: il permesso resta concesso ma MCP non chiede più eventi UI; con Avvia ripristina solo il sottoinsieme necessario, mai `TYPES_ALL_MASK`;
+- quando premi **STOP**, il Notification Listener esegue `requestUnbind()`; all'Avvia viene richiesto il rebind solo se Android ha già il permesso;
+- callback VPN e watchdog vengono unregisterati/rimossi immediatamente allo STOP;
+- Shizuku è inizializzato **solo al primo uso reale** e il binder listener viene rimosso allo STOP;
+- il worker dell'updater non è permanente: dopo un controllo aggiornamenti resta inattivo al massimo 30 secondi e poi termina;
+- Accessibility raggruppa gli eventi attivi con `notificationTimeout=100 ms`;
 - `screen_context`, screenshot, diff e scansioni dell'albero vengono eseguiti solo quando richiesti;
 - durante `wait_idle`/`wait_change` il polling semantico è limitato a 4 campioni/s invece di 10 campioni/s.
 
-Non viene dichiarata una percentuale di batteria/ora senza misura su telefono reale: il consumo effettivo dipende anche da dispositivo, ROM, schermo, frequenza delle automazioni e soprattutto dal fatto che Tailscale resti attivo. In idle il design dell'app è ora principalmente event-driven; sotto automazione intensa, screenshot e traversate UI sono le operazioni più costose e vengono eseguite solo su richiesta.
+Non viene dichiarata una percentuale di batteria/ora senza misura su telefono reale: il consumo effettivo dipende anche da dispositivo, ROM, schermo, frequenza delle automazioni e soprattutto dal fatto che Tailscale resti attivo. Con controllo remoto fermo MCP non ha più polling periodico, callback VPN, eventi Accessibility richiesti, Notification Listener bound o Shizuku inizializzato. Android può comunque mantenere il processo/AccessibilityService residente in RAM perché il permesso Accessibility resta abilitato, ma senza eventi richiesti non c'è un loop CPU MCP. Sotto automazione intensa, screenshot e traversate UI sono le operazioni più costose e vengono eseguite solo su richiesta.
 
 ## Verifiche ripetibili
 
