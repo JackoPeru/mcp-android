@@ -23,9 +23,12 @@ public final class RpcPolicy {
             case "shell_status":
             case "shizuku_status":
             case "privileged_status":
+            case "capabilities":
                 return LockDomain.NONE;
             case "shell":
             case "shizuku_shell":
+            case "force_stop_app":
+            case "logcat":
                 return LockDomain.SHELL;
             case "scroll_to":
                 return LockDomain.UI;

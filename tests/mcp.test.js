@@ -18,7 +18,7 @@ test('MCP discovers tools, validates file paths and routes without accessibility
   const [ct, st] = InMemoryTransport.createLinkedPair();
   await server.connect(st); await client.connect(ct);
   t.after(async () => { await client.close(); await server.close(); });
-  assert.equal((await client.listTools()).tools.length, 61);
+  assert.equal((await client.listTools()).tools.length, 64);
   const ui = await client.callTool({ name: 'android_ui_tree', arguments: {} });
   assert.equal(ui.isError, true);
   const roots = await client.callTool({ name: 'android_file_roots', arguments: {} });
@@ -87,7 +87,7 @@ test('actual stdio process initializes and exposes schemas without reaching a ph
   await client.connect(transport);
   t.after(() => client.close());
   const tools = (await client.listTools()).tools;
-  assert.equal(tools.length, 61);
+  assert.equal(tools.length, 64);
   assert.ok(tools.find(t => t.name === 'android_screen_context'));
   assert.ok(tools.find(t => t.name === 'android_screen_diff'));
   assert.ok(tools.find(t => t.name === 'android_wait_idle'));
@@ -96,6 +96,9 @@ test('actual stdio process initializes and exposes schemas without reaching a ph
   assert.ok(tools.find(t => t.name === 'android_press_key'));
   assert.ok(tools.find(t => t.name === 'android_act_and_observe'));
   assert.ok(tools.find(t => t.name === 'android_flow'));
+  assert.ok(tools.find(t => t.name === 'android_capabilities'));
+  assert.ok(tools.find(t => t.name === 'android_force_stop_app'));
+  assert.ok(tools.find(t => t.name === 'android_logcat'));
   assert.equal(tools.find(t => t.name === 'android_file_read').annotations.readOnlyHint, true);
   assert.equal(tools.find(t => t.name === 'android_file_write').annotations.readOnlyHint, false);
   assert.ok(tools.find(t => t.name === 'android_shell'));

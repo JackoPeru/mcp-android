@@ -113,6 +113,9 @@ public final class RpcDispatcher {
             case "shizuku_status": return shizukuStatus(params);
             case "shizuku_shell": return shizukuShell(params);
             case "privileged_status": return privilegedStatus(params);
+            case "capabilities": return capabilities(params);
+            case "force_stop_app": return forceStopApp(params);
+            case "logcat": return logcat(params);
             case "file_roots": return fileRoots(params);
             case "file_list": return fileList(params);
             case "file_stat": return fileStat(params);
@@ -799,6 +802,29 @@ public final class RpcDispatcher {
     private JSONObject privilegedStatus(JSONObject params) throws ApiException {
         JsonArgs.only(params);
         return AndroidSystemTools.privilegedStatus(context);
+    }
+
+    private JSONObject capabilities(JSONObject params) throws ApiException {
+        JsonArgs.only(params);
+        return CapabilityRouter.status(context, roots);
+    }
+
+    private JSONObject forceStopApp(JSONObject params) throws ApiException {
+        JsonArgs.only(params, "packageName");
+        String packageName = JsonArgs.requiredString(
+                params, "packageName", SecurityValidators.MAX_PACKAGE_LENGTH);
+        return CapabilityRouter.forceStop(context, packageName);
+    }
+
+    private JSONObject logcat(JSONObject params) throws ApiException {
+        JsonArgs.only(params, "packageName", "tag", "level", "lines", "sinceSeconds");
+        String packageName = JsonArgs.optionalStringAllowEmpty(
+                params, "packageName", "", SecurityValidators.MAX_PACKAGE_LENGTH);
+        String tag = JsonArgs.optionalStringAllowEmpty(params, "tag", "", 80);
+        String level = JsonArgs.optionalString(params, "level", "I", 1);
+        int lines = (int) JsonArgs.optionalLong(params, "lines", 200);
+        int sinceSeconds = (int) JsonArgs.optionalLong(params, "sinceSeconds", 300);
+        return CapabilityRouter.logcat(context, packageName, tag, level, lines, sinceSeconds);
     }
 
     private JSONObject fileRoots(JSONObject params) throws ApiException {
