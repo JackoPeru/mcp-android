@@ -56,8 +56,9 @@ public final class McpAccessibilityService extends AccessibilityService {
         if (info == null) {
             info = new AccessibilityServiceInfo();
         }
-        info.eventTypes = android.view.accessibility.AccessibilityEvent.TYPES_ALL_MASK;
+        info.eventTypes = trackedEventTypes();
         info.feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC;
+        info.notificationTimeout = 100;
         info.flags |= AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
                 | AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS;
         setServiceInfo(info);
@@ -68,9 +69,26 @@ public final class McpAccessibilityService extends AccessibilityService {
     public void onAccessibilityEvent(android.view.accessibility.AccessibilityEvent event) {
         // Do not persist event text. Only metadata is kept in a bounded in-memory journal.
         if (event != null) {
-            EventJournal.add("ui", String.valueOf(event.getPackageName()),
+            String packageName = String.valueOf(event.getPackageName());
+            if (getPackageName().equals(packageName)) return;
+            EventJournal.add("ui", packageName,
                     android.view.accessibility.AccessibilityEvent.eventTypeToString(event.getEventType()));
         }
+    }
+
+    static int trackedEventTypes() {
+        return android.view.accessibility.AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
+                | android.view.accessibility.AccessibilityEvent.TYPE_WINDOWS_CHANGED
+                | android.view.accessibility.AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
+                | android.view.accessibility.AccessibilityEvent.TYPE_VIEW_SCROLLED
+                | android.view.accessibility.AccessibilityEvent.TYPE_VIEW_FOCUSED
+                | android.view.accessibility.AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED
+                | android.view.accessibility.AccessibilityEvent.TYPE_VIEW_CLICKED
+                | android.view.accessibility.AccessibilityEvent.TYPE_VIEW_LONG_CLICKED
+                | android.view.accessibility.AccessibilityEvent.TYPE_VIEW_SELECTED
+                | android.view.accessibility.AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED
+                | android.view.accessibility.AccessibilityEvent.TYPE_VIEW_ACCESSIBILITY_FOCUSED
+                | android.view.accessibility.AccessibilityEvent.TYPE_VIEW_ACCESSIBILITY_FOCUS_CLEARED;
     }
 
     @Override

@@ -10,7 +10,7 @@ import java.util.concurrent.TimeUnit;
 /** Synchronization and bounded semantic navigation for agent-driven UI loops. */
 public final class UiLoopEngine {
     private static final int DEFAULT_CONTEXT_NODES = 250;
-    private static final long POLL_MS = 100;
+    private static final long POLL_MS = 250;
 
     private final McpAccessibilityService service;
     private final ScreenSnapshotStore snapshots;

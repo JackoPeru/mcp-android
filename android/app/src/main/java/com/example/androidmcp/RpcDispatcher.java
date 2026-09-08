@@ -854,6 +854,7 @@ public final class RpcDispatcher {
                     .put("state", McpForegroundService.state())
                     .put("running", McpForegroundService.isRunning())
                     .put("tailscaleAddress", McpForegroundService.address())
+                    .put("networkMonitoring", McpForegroundService.networkMonitoringMode())
                     .put("error", McpForegroundService.error())
                     .put("activeRequests", McpForegroundService.activeRequests())
                     .put("queuedRequests", McpForegroundService.queuedRequests())

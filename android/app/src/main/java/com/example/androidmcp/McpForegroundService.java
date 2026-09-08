@@ -7,69 +7,32 @@ import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Intent;
 import android.content.pm.ServiceInfo;
+import android.net.ConnectivityManager;
+import android.net.LinkProperties;
+import android.net.Network;
+import android.net.NetworkCapabilities;
+import android.net.NetworkRequest;
 import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 
 /** User-started remote session, visible notification, no automatic restart or boot receiver. */
 public final class McpForegroundService extends Service {
-    private static final long HEALTHY_CHECK_MS = 2_000L;
-    private static final long RECOVERY_CHECK_MS = 5_000L;
+    private static final long VPN_EVENT_DEBOUNCE_MS = 250L;
+    private static final long NETWORK_WATCHDOG_MS = 60_000L;
     private static volatile McpForegroundService instance;
     private static volatile String lastError = "";
     private McpHttpServer server;
     private volatile boolean reconnecting;
+    private ConnectivityManager connectivity;
+    private ConnectivityManager.NetworkCallback vpnCallback;
+    private boolean networkMonitoringStarted;
     private final Handler handler = new Handler(android.os.Looper.getMainLooper());
-    private final Runnable networkCheck = new Runnable() {
+    private final Runnable networkReconcile = this::reconcileNetwork;
+    private final Runnable networkWatchdog = new Runnable() {
         @Override public void run() {
-            McpHttpServer current = server;
-            String discovered = "";
-            try {
-                discovered = TailscaleAddress.find(McpForegroundService.this).getHostAddress();
-            } catch (Exception ignored) {
-                // Empty address means the VPN is temporarily unavailable.
-            }
-            boolean serverRunning = current != null && current.isRunning();
-            String bound = current == null ? "" : current.address();
-            NetworkRecoveryPolicy.Action action =
-                    NetworkRecoveryPolicy.evaluate(serverRunning, bound, discovered);
-            try {
-                switch (action) {
-                    case KEEP:
-                        reconnecting = false;
-                        lastError = "";
-                        break;
-                    case STOP_AND_WAIT:
-                        if (current != null) current.stop();
-                        reconnecting = true;
-                        lastError = "Tailscale disconnesso: riconnessione automatica in corso.";
-                        break;
-                    case WAIT:
-                        reconnecting = true;
-                        lastError = "Tailscale non disponibile: riconnessione automatica in corso.";
-                        break;
-                    case START:
-                        if (current == null) {
-                            current = new McpHttpServer(McpForegroundService.this);
-                            server = current;
-                        }
-                        current.start();
-                        reconnecting = false;
-                        lastError = "";
-                        break;
-                    case RESTART:
-                        current.stop();
-                        current.start();
-                        reconnecting = false;
-                        lastError = "";
-                        break;
-                }
-            } catch (Exception e) {
-                if (current != null) current.stop();
-                reconnecting = true;
-                lastError = "Tailscale non disponibile: riconnessione automatica in corso.";
-            }
-            handler.postDelayed(this, reconnecting ? RECOVERY_CHECK_MS : HEALTHY_CHECK_MS);
+            reconcileNetwork();
+            handler.postDelayed(this, NETWORK_WATCHDOG_MS);
         }
     };
 
@@ -102,8 +65,7 @@ public final class McpForegroundService extends Service {
                 reconnecting = true;
                 lastError = "Tailscale non disponibile: riconnessione automatica in corso.";
             }
-            handler.removeCallbacks(networkCheck);
-            handler.postDelayed(networkCheck, reconnecting ? RECOVERY_CHECK_MS : HEALTHY_CHECK_MS);
+            startNetworkMonitoring();
         } catch (Exception e) {
             lastError = "Avvio fallito: impossibile inizializzare il controllo remoto.";
             stopSelf();
@@ -135,8 +97,103 @@ public final class McpForegroundService extends Service {
         McpForegroundService value = instance;
         return value == null || value.server == null ? 0 : value.server.queuedRequests();
     }
+    static String networkMonitoringMode() {
+        McpForegroundService value = instance;
+        return value != null && value.networkMonitoringStarted ? "event_driven_vpn" : "inactive";
+    }
+
+    private void startNetworkMonitoring() {
+        if (networkMonitoringStarted) return;
+        connectivity = getSystemService(ConnectivityManager.class);
+        if (connectivity != null) {
+            vpnCallback = new ConnectivityManager.NetworkCallback() {
+                @Override public void onAvailable(Network network) { scheduleNetworkReconcile(); }
+                @Override public void onLost(Network network) { scheduleNetworkReconcile(); }
+                @Override public void onLinkPropertiesChanged(Network network, LinkProperties properties) {
+                    scheduleNetworkReconcile();
+                }
+                @Override public void onCapabilitiesChanged(Network network, NetworkCapabilities capabilities) {
+                    scheduleNetworkReconcile();
+                }
+            };
+            try {
+                NetworkRequest request = new NetworkRequest.Builder()
+                        .addTransportType(NetworkCapabilities.TRANSPORT_VPN)
+                        .build();
+                connectivity.registerNetworkCallback(request, vpnCallback, handler);
+            } catch (RuntimeException e) {
+                vpnCallback = null;
+            }
+        }
+        networkMonitoringStarted = true;
+        handler.removeCallbacks(networkWatchdog);
+        handler.postDelayed(networkWatchdog, NETWORK_WATCHDOG_MS);
+    }
+
+    private void scheduleNetworkReconcile() {
+        handler.removeCallbacks(networkReconcile);
+        handler.postDelayed(networkReconcile, VPN_EVENT_DEBOUNCE_MS);
+    }
+
+    private void reconcileNetwork() {
+        McpHttpServer current = server;
+        String discovered = "";
+        try {
+            discovered = TailscaleAddress.find(this).getHostAddress();
+        } catch (Exception ignored) {
+            // Empty address means the VPN is temporarily unavailable.
+        }
+        boolean serverRunning = current != null && current.isRunning();
+        String bound = current == null ? "" : current.address();
+        NetworkRecoveryPolicy.Action action =
+                NetworkRecoveryPolicy.evaluate(serverRunning, bound, discovered);
+        try {
+            switch (action) {
+                case KEEP:
+                    reconnecting = false;
+                    lastError = "";
+                    break;
+                case STOP_AND_WAIT:
+                    if (current != null) current.stop();
+                    reconnecting = true;
+                    lastError = "Tailscale disconnesso: riconnessione automatica in corso.";
+                    break;
+                case WAIT:
+                    reconnecting = true;
+                    lastError = "Tailscale non disponibile: riconnessione automatica in corso.";
+                    break;
+                case START:
+                    if (current == null) {
+                        current = new McpHttpServer(this);
+                        server = current;
+                    }
+                    current.start();
+                    reconnecting = false;
+                    lastError = "";
+                    break;
+                case RESTART:
+                    current.stop();
+                    current.start();
+                    reconnecting = false;
+                    lastError = "";
+                    break;
+            }
+        } catch (Exception e) {
+            if (current != null) current.stop();
+            reconnecting = true;
+            lastError = "Tailscale non disponibile: riconnessione automatica in corso.";
+        }
+    }
+
     @Override public void onDestroy() {
         handler.removeCallbacksAndMessages(null);
+        if (connectivity != null && vpnCallback != null) {
+            try { connectivity.unregisterNetworkCallback(vpnCallback); }
+            catch (RuntimeException ignored) { }
+        }
+        vpnCallback = null;
+        connectivity = null;
+        networkMonitoringStarted = false;
         if (server != null) server.stop();
         ShizukuBridge.disconnect();
         reconnecting = false;

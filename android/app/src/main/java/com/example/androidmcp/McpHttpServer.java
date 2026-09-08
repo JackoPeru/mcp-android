@@ -63,7 +63,7 @@ public final class McpHttpServer {
             socket.setReuseAddress(true);
             socket.bind(new InetSocketAddress(bindAddress, PORT), 32);
             pool = new ThreadPoolExecutor(
-                    2, 4, 60L, TimeUnit.SECONDS, new ArrayBlockingQueue<>(16),
+                    0, 4, 30L, TimeUnit.SECONDS, new ArrayBlockingQueue<>(16),
                     runnable -> {
                         Thread thread = new Thread(runnable, "android-mcp-rpc");
                         thread.setDaemon(true);

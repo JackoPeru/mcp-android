@@ -15,7 +15,7 @@ La connessione usa HTTP sulla rete WireGuard cifrata di Tailscale, con token sep
 
 ## Installazione senza cavo
 
-APK disponibile: **`dist/mcp-android-0.7.0-debug.apk`**, con SHA-256 nel file accanto. È una build debug firmata per installazione personale, non una release Play Store.
+APK disponibile: **`dist/mcp-android-0.7.1-debug.apk`**, con SHA-256 nel file accanto. È una build debug firmata per installazione personale, non una release Play Store.
 
 1. Trasferisci l'APK al telefono, ad esempio con Tailscale Taildrop o il tuo servizio file, e aprilo dal telefono. Autorizza l'installazione per l'app da cui lo apri.
 2. Apri MCP Android e abilita il servizio Accessibilità nelle impostazioni Android. Per APK installati esternamente, Android può richiedere prima **Consenti impostazioni con restrizioni** nelle informazioni dell'app.
@@ -131,6 +131,20 @@ Le operazioni concorrenti sono separate per dominio: filesystem, UI e shell hann
 - Fermando il controllo remoto viene anche smontato il UserService Shizuku.
 - Le funzioni standard non richiedono Shizuku, root o ADB.
 - Se Tailscale cade temporaneamente, il foreground service resta vivo in stato `reconnecting`, chiude solo il socket MCP e riprova automaticamente ogni 5 secondi. Quando Tailscale ritorna, il server si riapre senza dover premere nuovamente Avvia. Android o il produttore possono comunque terminare il processo; la notifica e il pulsante Stop rendono visibile e revocabile il controllo.
+
+## Consumo batteria
+
+La v0.7.1 riduce il lavoro in background al minimo pratico:
+
+- il server HTTP resta bloccato su `accept()` quando non arrivano richieste, quindi non esegue polling;
+- il pool RPC mantiene **0 worker permanenti** a riposo e crea thread solo quando arriva una richiesta;
+- Tailscale viene seguito tramite `ConnectivityManager.NetworkCallback`; il vecchio controllo ogni 2 secondi è stato rimosso;
+- resta solo un watchdog di sicurezza ogni 60 secondi, quindi da 1.800 controlli/ora a 60 controlli/ora in assenza di eventi VPN;
+- Accessibility ascolta solo gli eventi utili al controllo UI, non più `TYPES_ALL_MASK`, e raggruppa gli eventi con `notificationTimeout=100 ms`;
+- `screen_context`, screenshot, diff e scansioni dell'albero vengono eseguiti solo quando richiesti;
+- durante `wait_idle`/`wait_change` il polling semantico è limitato a 4 campioni/s invece di 10 campioni/s.
+
+Non viene dichiarata una percentuale di batteria/ora senza misura su telefono reale: il consumo effettivo dipende anche da dispositivo, ROM, schermo, frequenza delle automazioni e soprattutto dal fatto che Tailscale resti attivo. In idle il design dell'app è ora principalmente event-driven; sotto automazione intensa, screenshot e traversate UI sono le operazioni più costose e vengono eseguite solo su richiesta.
 
 ## Verifiche ripetibili
 

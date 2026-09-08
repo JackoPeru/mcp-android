@@ -1,4 +1,4 @@
-# Acceptance v0.7.0
+# Acceptance v0.7.1
 
 ## Scope verificato
 
@@ -30,6 +30,12 @@
 - CI GitHub per test/build e workflow separata per release firmate e immutabili.
 - RPC separato in domini di concorrenza UI, FILE e SHELL; wait/event read-only senza lock UI.
 - Recovery automatica del socket MCP dopo perdita/ritorno di Tailscale.
+- Profilo energetico v0.7.1:
+  - monitor VPN event-driven via ConnectivityManager.NetworkCallback;
+  - watchdog Tailscale ridotto a 1 controllo/60 s invece di 1/2 s;
+  - Accessibility limitata agli eventi necessari + notificationTimeout 100 ms;
+  - pool RPC con 0 worker permanenti in idle;
+  - polling semantico dei wait ridotto da 100 ms a 250 ms.
 
 ## Boundary fisico
 
@@ -94,11 +100,11 @@ Questi punti richiedono il collaudo sul telefono.
   - 1 signer;
   - Android Debug, RSA 2048.
 - Package: `com.example.androidmcp`.
-- versionCode: **8**.
-- versionName: **0.7.0**.
-- APK: `dist/mcp-android-0.7.0-debug.apk`.
-- Dimensione APK: **2,710,351 byte**.
-- SHA-256: `380e546f8d21ffbcde3bde95d1d1cc9bd20f5b688ad1c3330ac3d4868216f379`.
+- versionCode: **9**.
+- versionName: **0.7.1**.
+- APK: `dist/mcp-android-0.7.1-debug.apk`.
+- Dimensione APK: **2,712,263 byte**.
+- SHA-256: `53321b8ccb258abb2ce1a7a0ca8dfe63741faf922921aedb56a764fdb39057bb`.
 - Certificato signer SHA-256: `7be7c380f31c81c050a86ea8cefd4ec3bd41972ddd864a8edb97b1e20c84823f`.
 - Il signer coincide con il fingerprint atteso dalla release workflow e dalle release precedenti compatibili con l'updater.
 
@@ -130,6 +136,9 @@ Questi punti richiedono il collaudo sul telefono.
 - `events_wait`, `wait_idle`, `wait_change`, `wait_activity`, diagnostics e altre letture non occupano il lock UI; filesystem, UI e shell sono serializzati solo nei rispettivi domini.
 - Timeout: 8 s per I/O socket, **25 s** deadline richiesta sul telefono, **30 s** timeout bridge PC; il flow resta limitato a **20 s**.
 - Una perdita temporanea di Tailscale non termina il foreground service: il socket viene chiuso e riaperto automaticamente quando la VPN torna.
+- Il monitor Tailscale non esegue più discovery ogni 2 secondi. Le variazioni VPN attivano una callback event-driven; resta un watchdog ogni 60 secondi come fallback.
+- Il server HTTP resta bloccato su `accept()` in idle e il pool RPC non mantiene worker permanenti senza richieste.
+- Accessibility non usa più `TYPES_ALL_MASK`: vengono ricevute solo le classi di evento necessarie al controllo/sincronizzazione UI.
 
 ## Fonti di riferimento
 
@@ -143,4 +152,4 @@ Questi punti richiedono il collaudo sul telefono.
 
 ## Stato
 
-Implementazione desktop/build **completa per v0.7.0**. Il codice soddisfa i milestone v0.7 previsti dalla spec; WebView/CDP completo, visual locator automatico e profili app restano superfici opzionali/future. Il blocker rimasto è il collaudo end-to-end su telefono fisico; nessun successo hardware viene dichiarato finché quel test non viene eseguito.
+Implementazione desktop/build **completa per v0.7.1**. Il codice soddisfa i milestone v0.7 previsti dalla spec e include il pass di ottimizzazione energetica. Non viene dichiarato un consumo batteria percentuale senza collaudo su telefono fisico; Tailscale, schermo acceso e frequenza delle automazioni possono incidere più del processo MCP stesso. WebView/CDP completo, visual locator automatico e profili app restano superfici opzionali/future. Il blocker rimasto è il collaudo end-to-end su telefono fisico; nessun successo hardware viene dichiarato finché quel test non viene eseguito.
