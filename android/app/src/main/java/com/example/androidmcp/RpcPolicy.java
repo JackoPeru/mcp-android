@@ -11,6 +11,8 @@ public final class RpcPolicy {
         if (method.startsWith("file_")) return LockDomain.FILE;
         switch (method) {
             case "status":
+            case "screen_context":
+            case "screen_diff":
             case "device_info":
             case "events":
             case "events_wait":

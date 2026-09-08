@@ -22,6 +22,7 @@ public final class RpcDispatcher {
     private final Context context;
     private final FileRootStore roots;
     private final SafFileStore files;
+    private final ScreenSnapshotStore snapshots = new ScreenSnapshotStore();
     private static final java.util.concurrent.locks.ReentrantLock UI = new java.util.concurrent.locks.ReentrantLock();
     private static final java.util.concurrent.locks.ReentrantLock FILE = new java.util.concurrent.locks.ReentrantLock();
     private static final java.util.concurrent.locks.ReentrantLock SHELL = new java.util.concurrent.locks.ReentrantLock();
@@ -64,6 +65,8 @@ public final class RpcDispatcher {
     private Object dispatchAllowed(String method, JSONObject params) throws ApiException {
         switch (method) {
             case "status": return status(params);
+            case "screen_context": return screenContext(params);
+            case "screen_diff": return screenDiff(params);
             case "ui_tree": return uiTree(params);
             case "ui_find": return uiFind(params);
             case "ui_click": return uiClick(params);
@@ -156,6 +159,48 @@ public final class RpcDispatcher {
         } catch (JSONException e) {
             throw new ApiException("INTERNAL", "Unable to encode status");
         }
+    }
+
+    private JSONObject screenContext(JSONObject params) throws ApiException {
+        JsonArgs.only(params, "treeMode", "screenshot", "includeInvisible", "maxNodes");
+        requireUnlocked();
+        String treeMode = JsonArgs.optionalString(params, "treeMode", "compact", 16);
+        if (!treeMode.equals("compact")) throw new ApiException("INVALID_ARGUMENT", "Unsupported tree mode");
+        boolean includeInvisible = JsonArgs.optionalBoolean(params, "includeInvisible", false);
+        boolean includeScreenshot = JsonArgs.optionalBoolean(params, "screenshot", false);
+        int maxNodes = (int) JsonArgs.optionalLong(params, "maxNodes", 250);
+        McpAccessibilityService service = requireAccessibility();
+        JSONObject semantic = service.compactContext(includeInvisible, maxNodes);
+        ScreenSnapshotStore.Snapshot snapshot = snapshots.capture(semantic);
+        JSONObject response = snapshot.responseCopy();
+        if (includeScreenshot) {
+            byte[] png = service.screenshot();
+            String data = Base64.encodeToString(png, Base64.NO_WRAP);
+            if (data.length() > 8 * 1024 * 1024) {
+                throw new ApiException("RESPONSE_TOO_LARGE", "Screenshot exceeds response limit");
+            }
+            BitmapFactory.Options options = new BitmapFactory.Options();
+            options.inJustDecodeBounds = true;
+            BitmapFactory.decodeByteArray(png, 0, png.length, options);
+            try {
+                response.put("screenshot", new JSONObject()
+                        .put("mimeType", "image/png")
+                        .put("data", data)
+                        .put("width", Math.max(1, options.outWidth))
+                        .put("height", Math.max(1, options.outHeight)));
+            } catch (JSONException e) {
+                throw new ApiException("INTERNAL", "Unable to encode screen screenshot");
+            }
+        }
+        return response;
+    }
+
+    private JSONObject screenDiff(JSONObject params) throws ApiException {
+        JsonArgs.only(params, "fromSnapshotId", "toSnapshotId");
+        long from = JsonArgs.requiredLong(params, "fromSnapshotId");
+        long to = JsonArgs.requiredLong(params, "toSnapshotId");
+        if (from < 1 || to < 1) throw new ApiException("INVALID_ARGUMENT", "Invalid snapshot id");
+        return snapshots.diff(from, to);
     }
 
     private JSONObject uiTree(JSONObject params) throws ApiException {

@@ -15,6 +15,7 @@ import android.os.Looper;
 import android.view.Display;
 import android.view.WindowManager;
 import android.view.accessibility.AccessibilityNodeInfo;
+import android.view.accessibility.AccessibilityWindowInfo;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -149,6 +150,60 @@ public final class McpAccessibilityService extends AccessibilityService {
             } finally {
                 if (focused != null) focused.recycle();
                 if (root != null) root.recycle();
+            }
+        });
+    }
+
+    /** Compact flattened context intended for agent loops and semantic snapshotting. */
+    public JSONObject compactContext(boolean includeInvisible, int maxNodes) throws ApiException {
+        if (maxNodes < 1 || maxNodes > MAX_NODES) {
+            throw new ApiException("INVALID_ARGUMENT", "Invalid compact node limit");
+        }
+        return onMain(() -> {
+            AccessibilityNodeInfo root = getRootInActiveWindow();
+            if (root == null) throw new ApiException("UI_UNAVAILABLE", "No active accessibility window");
+            CompactCounter counter = new CompactCounter(maxNodes);
+            JSONArray nodes = new JSONArray();
+            AccessibilityNodeInfo focused = null;
+            try {
+                collectCompact(root, "0", includeInvisible, nodes, counter);
+                focused = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT);
+                Point size = screenSize();
+                WindowManager manager = (WindowManager) getSystemService(WINDOW_SERVICE);
+                int rotation = manager == null ? 0 : manager.getDefaultDisplay().getRotation();
+                boolean keyboardVisible = false;
+                List<AccessibilityWindowInfo> windows = getWindows();
+                if (windows != null) {
+                    for (AccessibilityWindowInfo window : windows) {
+                        if (window != null && window.getType() == AccessibilityWindowInfo.TYPE_INPUT_METHOD) {
+                            keyboardVisible = true;
+                            break;
+                        }
+                    }
+                }
+                JSONObject display = new JSONObject()
+                        .put("width", size.x)
+                        .put("height", size.y)
+                        .put("rotation", rotation)
+                        .put("orientation", size.y >= size.x ? "portrait" : "landscape");
+                JSONObject input = new JSONObject()
+                        .put("keyboardVisible", keyboardVisible)
+                        .put("focusedEditable", focused != null && focused.isEditable());
+                return new JSONObject()
+                        .put("packageName", capped(root.getPackageName()))
+                        .put("windowClass", capped(root.getClassName()))
+                        .put("windowId", root.getWindowId())
+                        .put("display", display)
+                        .put("input", input)
+                        .put("nodes", nodes)
+                        .put("nodeCount", counter.count)
+                        .put("truncated", counter.truncated)
+                        .put("webViewDetected", counter.webViewDetected);
+            } catch (JSONException e) {
+                throw new ApiException("INTERNAL", "Unable to encode compact UI context");
+            } finally {
+                if (focused != null) focused.recycle();
+                root.recycle();
             }
         });
     }
@@ -433,6 +488,63 @@ public final class McpAccessibilityService extends AccessibilityService {
         }
     }
 
+    private void collectCompact(AccessibilityNodeInfo node, String path, boolean includeInvisible,
+                                JSONArray nodes, CompactCounter counter) throws ApiException {
+        RequestScope.checkCurrent();
+        if (node == null || counter.count >= counter.limit) {
+            if (node != null) counter.truncated = true;
+            return;
+        }
+        String packageName = String.valueOf(node.getPackageName());
+        boolean own = getPackageName().equals(packageName);
+        boolean include = !own && (includeInvisible || node.isVisibleToUser());
+        if (include) {
+            String className = capped(node.getClassName());
+            if (className.toLowerCase(Locale.ROOT).contains("webview")) counter.webViewDetected = true;
+            nodes.put(encodeCompactNode(node, path));
+            counter.count++;
+            if (counter.count >= counter.limit && node.getChildCount() > 0) counter.truncated = true;
+        }
+        if (counter.count >= counter.limit) return;
+        for (int i = 0; i < node.getChildCount(); i++) {
+            AccessibilityNodeInfo child = node.getChild(i);
+            try { collectCompact(child, path + "/" + i, includeInvisible, nodes, counter); }
+            finally { if (child != null) child.recycle(); }
+            if (counter.count >= counter.limit) {
+                if (i + 1 < node.getChildCount()) counter.truncated = true;
+                break;
+            }
+        }
+    }
+
+    private JSONObject encodeCompactNode(AccessibilityNodeInfo node, String path) throws ApiException {
+        boolean password = node.isPassword();
+        JSONObject object = new JSONObject();
+        try {
+            object.put("path", path);
+            object.put("className", capped(node.getClassName()));
+            object.put("packageName", capped(node.getPackageName()));
+            object.put("viewId", capped(node.getViewIdResourceName()));
+            object.put("bounds", bounds(node));
+            object.put("clickable", node.isClickable());
+            object.put("editable", node.isEditable());
+            object.put("scrollable", node.isScrollable());
+            object.put("focused", node.isFocused());
+            object.put("enabled", node.isEnabled());
+            object.put("visible", node.isVisibleToUser());
+            object.put("selected", node.isSelected());
+            object.put("checkable", node.isCheckable());
+            object.put("checked", node.isChecked());
+            object.put("password", password);
+            object.put("text", password ? "[REDACTED]" : capped(node.getText()));
+            object.put("contentDescription", password ? "" : capped(node.getContentDescription()));
+            object.put("hintText", password ? "" : capped(node.getHintText()));
+            return object;
+        } catch (JSONException e) {
+            throw new ApiException("INTERNAL", "Unable to encode compact UI node");
+        }
+    }
+
     private boolean clickMatch(AccessibilityNodeInfo node, UiSelector selector, ActionResult result)
             throws ApiException {
         RequestScope.checkCurrent();
@@ -607,6 +719,14 @@ public final class McpAccessibilityService extends AccessibilityService {
     private static final class Counter {
         int count;
         boolean truncated;
+    }
+
+    private static final class CompactCounter {
+        final int limit;
+        int count;
+        boolean truncated;
+        boolean webViewDetected;
+        CompactCounter(int limit) { this.limit = limit; }
     }
 
     private static final class MatchCounter {
