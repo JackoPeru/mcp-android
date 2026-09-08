@@ -1,6 +1,7 @@
 package com.example.androidmcp;
 
 import org.json.JSONException;
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.util.HashSet;
@@ -109,6 +110,14 @@ public final class JsonArgs {
     public static JSONObject optionalObject(JSONObject object, String key) throws ApiException {
         if (!object.has(key)) return new JSONObject();
         return requiredObject(object, key);
+    }
+
+    public static JSONArray requiredArray(JSONObject object, String key) throws ApiException {
+        Object value = value(object, key);
+        if (!(value instanceof JSONArray)) {
+            throw new ApiException("INVALID_ARGUMENT", "Invalid parameter");
+        }
+        return (JSONArray) value;
     }
 
     private static Object value(JSONObject object, String key) throws ApiException {

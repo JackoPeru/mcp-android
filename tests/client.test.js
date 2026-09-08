@@ -15,7 +15,7 @@ test('config only accepts explicit Tailscale IPv4, no credentials or URL redirec
 
 test('default client timeout leaves headroom above phone long operations', () => {
   const client = new AndroidClient({ url: 'http://100.100.1.2:8765/', token });
-  assert.equal(client.timeoutMs, 25000);
+  assert.equal(client.timeoutMs, 30000);
 });
 
 test('real HTTP boundary: auth, result, error, redirect, bounded body and timeout', async (t) => {

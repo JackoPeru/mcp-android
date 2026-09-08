@@ -62,7 +62,7 @@ public final class RpcDispatcher {
         }
     }
 
-    private Object dispatchAllowed(String method, JSONObject params) throws ApiException {
+    Object dispatchAllowed(String method, JSONObject params) throws ApiException {
         switch (method) {
             case "status": return status(params);
             case "screen_context": return screenContext(params);
@@ -72,6 +72,7 @@ public final class RpcDispatcher {
             case "wait_activity": return waitActivity(params);
             case "scroll_to": return scrollTo(params);
             case "act_and_observe": return actAndObserve(params);
+            case "flow": return flow(params);
             case "ui_tree": return uiTree(params);
             case "ui_find": return uiFind(params);
             case "ui_click": return uiClick(params);
@@ -312,6 +313,11 @@ public final class RpcDispatcher {
         return result;
     }
 
+    private JSONObject flow(JSONObject params) throws ApiException {
+        requireUnlocked();
+        return new FlowRuntime(this, requireAccessibility(), snapshots).execute(params);
+    }
+
     private static void validateCompositeWait(JSONObject wait) throws ApiException {
         JsonArgs.only(wait, "mode", "timeoutMs", "quietMs", "selector", "state", "pollMs",
                 "packageName", "windowClass");
@@ -370,7 +376,7 @@ public final class RpcDispatcher {
         }
     }
 
-    private static void validateSelectorSpec(JSONObject selector) throws ApiException {
+    static void validateSelectorSpec(JSONObject selector) throws ApiException {
         JsonArgs.only(selector, "text", "textContains", "description", "descriptionContains",
                 "viewId", "className", "packageName", "clickable", "editable", "enabled",
                 "visible", "caseSensitive");

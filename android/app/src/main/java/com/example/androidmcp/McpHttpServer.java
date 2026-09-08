@@ -36,7 +36,7 @@ public final class McpHttpServer {
     private static final int MAX_HEADER_LINE_BYTES = 4 * 1024;
     private static final int MAX_HEADERS = 32;
     static final int SOCKET_IO_TIMEOUT_MS = 8_000;
-    static final int REQUEST_DEADLINE_MS = 20_000;
+    static final int REQUEST_DEADLINE_MS = 25_000;
     private final Context context;
     private final RpcDispatcher dispatcher;
     private final AtomicBoolean running = new AtomicBoolean();

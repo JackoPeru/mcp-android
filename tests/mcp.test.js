@@ -18,7 +18,7 @@ test('MCP discovers tools, validates file paths and routes without accessibility
   const [ct, st] = InMemoryTransport.createLinkedPair();
   await server.connect(st); await client.connect(ct);
   t.after(async () => { await client.close(); await server.close(); });
-  assert.equal((await client.listTools()).tools.length, 60);
+  assert.equal((await client.listTools()).tools.length, 61);
   const ui = await client.callTool({ name: 'android_ui_tree', arguments: {} });
   assert.equal(ui.isError, true);
   const roots = await client.callTool({ name: 'android_file_roots', arguments: {} });
@@ -56,6 +56,19 @@ test('MCP discovers tools, validates file paths and routes without accessibility
   });
   assert.equal(composite.isError, undefined);
   assert.equal(calls.at(-1).method, 'act_and_observe');
+  const beforeUnsafeFlow = calls.length;
+  const unsafeFlow = await client.callTool({
+    name: 'android_flow',
+    arguments: { steps: [{ type: 'shell', params: { script: 'id' } }] },
+  });
+  assert.equal(unsafeFlow.isError, true);
+  assert.equal(calls.length, beforeUnsafeFlow);
+  const flow = await client.callTool({
+    name: 'android_flow',
+    arguments: { steps: [{ type: 'observe', params: {} }], timeoutMs: 1000 },
+  });
+  assert.equal(flow.isError, undefined);
+  assert.equal(calls.at(-1).method, 'flow');
   const shot = await client.callTool({ name: 'android_screenshot', arguments: {} });
   assert.equal(shot.content[0].type, 'image');
   assert.equal(JSON.parse(shot.content[1].text).displayWidth, 1600);
@@ -74,7 +87,7 @@ test('actual stdio process initializes and exposes schemas without reaching a ph
   await client.connect(transport);
   t.after(() => client.close());
   const tools = (await client.listTools()).tools;
-  assert.equal(tools.length, 60);
+  assert.equal(tools.length, 61);
   assert.ok(tools.find(t => t.name === 'android_screen_context'));
   assert.ok(tools.find(t => t.name === 'android_screen_diff'));
   assert.ok(tools.find(t => t.name === 'android_wait_idle'));
@@ -82,6 +95,7 @@ test('actual stdio process initializes and exposes schemas without reaching a ph
   assert.ok(tools.find(t => t.name === 'android_double_tap'));
   assert.ok(tools.find(t => t.name === 'android_press_key'));
   assert.ok(tools.find(t => t.name === 'android_act_and_observe'));
+  assert.ok(tools.find(t => t.name === 'android_flow'));
   assert.equal(tools.find(t => t.name === 'android_file_read').annotations.readOnlyHint, true);
   assert.equal(tools.find(t => t.name === 'android_file_write').annotations.readOnlyHint, false);
   assert.ok(tools.find(t => t.name === 'android_shell'));

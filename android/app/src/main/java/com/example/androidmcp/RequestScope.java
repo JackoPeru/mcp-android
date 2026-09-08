@@ -7,7 +7,7 @@ import java.io.IOException;
 /** One request's deadline and cancellation, including provider reads and queued UI work. */
 final class RequestScope {
     static final ThreadLocal<RequestScope> CURRENT = new ThreadLocal<>();
-    static final long DEFAULT_TIMEOUT_MS = 20_000L;
+    static final long DEFAULT_TIMEOUT_MS = 25_000L;
     private volatile CancellationSignal signal;
     private final long deadline;
     private volatile boolean cancelled;
