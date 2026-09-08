@@ -1,4 +1,4 @@
-# Acceptance v0.6.0
+# Acceptance v0.6.1
 
 ## Scope verificato
 
@@ -13,8 +13,11 @@
 - Shell Shizuku tramite UserService con consenso separato e senza fallback automatico.
 - Stop del controllo remoto: chiude HTTP e disconnette il UserService Shizuku.
 - Updater GitHub Releases con controllo versione, verifica checksum e PackageInstaller.
+- Verifica preventiva dell'APK candidato: package, versionName, versionCode e signer SHA-256.
 - Controllo di coerenza versione tra Node, Gradle, bridge MCP, script APK e tag release.
-- CI GitHub per test/build e workflow separata per le release firmate.
+- CI GitHub per test/build e workflow separata per release firmate e immutabili.
+- RPC separato in domini di concorrenza UI, FILE e SHELL; event wait senza lock UI.
+- Recovery automatica del socket MCP dopo perdita/ritorno di Tailscale.
 
 ## Boundary fisico
 
@@ -35,15 +38,19 @@ Questi punti richiedono il collaudo sul telefono.
 ## Verifiche automatiche eseguite il 2026-09-08
 
 - Node: v24.19.0.
-- `npm.cmd run check`: controllo versione + 4 gruppi di test Node, tutti passati.
+- `npm.cmd run check`: controllo versione + 5 test Node, tutti passati.
 - Discovery MCP via processo stdio: 47 tool.
 - Validazione bridge: path traversal, range file, coordinate, schemi, auth HTTP, redirect refusal, timeout e limite risposta.
 - `build-android.ps1`: assembleDebug + testDebugUnitTest + lintDebug completati.
-- Test Android/JVM: 13 test, 0 failure, 0 error:
+- Test Android/JVM: 25 test, 0 failure, 0 error:
+  - ApkIdentityValidationTest: 4
   - HttpBoundaryTest: 4
-  - RequestScopeTest: 2
+  - NetworkRecoveryPolicyTest: 3
+  - RequestScopeTest: 3
+  - RpcPolicyTest: 2
   - SecurityValidatorsTest: 5
   - VersioningTest: 2
+  - UpdateValidationTest: 2
 - Lint: 0 errori, 1 warning:
   - targetSdk 35 non è l'ultimo SDK disponibile nell'ambiente.
 - Manifest merged verificato:
@@ -57,11 +64,12 @@ Questi punti richiedono il collaudo sul telefono.
   - REQUEST_INSTALL_PACKAGES e UpdateInstallReceiver presenti.
 - Firma APK: APK Signature Scheme v2 valida, 1 signer debug.
 - Package: `com.example.androidmcp`.
-- versionCode: 6.
-- versionName: 0.6.0.
-- APK: `dist/mcp-android-0.6.0-debug.apk`.
-- Dimensione APK: 2,651,595 byte.
-- SHA-256: `00fdafae88f7ec9e03babd366225bac692fd8c82f1904cfba9d3cb680e7d23a4`.
+- versionCode: 7.
+- versionName: 0.6.1.
+- APK: `dist/mcp-android-0.6.1-debug.apk`.
+- Dimensione APK: 2,826,535 byte.
+- SHA-256: `fddd08491dc661b51c63184674589d2ced128e5ecbe8ee2ba8b1b66214bd4824`.
+- Certificato signer SHA-256: `7be7c380f31c81c050a86ea8cefd4ec3bd41972ddd864a8edb97b1e20c84823f`.
 
 ## Sicurezza / trust boundary
 
@@ -79,7 +87,11 @@ Questi punti richiedono il collaudo sul telefono.
 - Timeout di gesture/shell possono lasciare l'esito incerto; il client deve osservare lo stato prima di ripetere l'azione.
 - L'updater accetta metadata solo dall'endpoint GitHub configurato e limita i redirect agli host release consentiti.
 - L'updater rifiuta tag/versioni ambigui, asset con nome inatteso, checksum non valido e APK oltre 100 MiB.
-- Android verifica inoltre la compatibilità della firma prima di installare un aggiornamento.
+- Prima di PackageInstaller, l'updater rifiuta un APK con package/versionName inattesi, versionCode non crescente o signer diverso dall'app installata.
+- Le release esistenti non possono essere sovrascritte dagli script di progetto; la pubblicazione locale richiede `main` pulito e sincronizzato con `origin/main`.
+- `events_wait` non occupa il lock UI; filesystem, UI e shell sono serializzati solo nei rispettivi domini.
+- Timeout: 8 s per I/O socket, 20 s deadline richiesta sul telefono, 25 s timeout bridge PC; le operazioni lunghe restano limitate a 12 s.
+- Una perdita temporanea di Tailscale non termina più il foreground service: il socket viene chiuso e riaperto automaticamente quando la VPN torna.
 
 ## Fonti di riferimento
 
@@ -93,4 +105,4 @@ Questi punti richiedono il collaudo sul telefono.
 
 ## Stato
 
-Implementazione desktop/build **completa per v0.6.0**. Il blocker rimasto è il collaudo end-to-end su telefono fisico, incluso il nuovo updater; nessun successo hardware viene dichiarato finché quel test non viene eseguito.
+Implementazione desktop/build **completa per v0.6.1**. Il blocker rimasto è il collaudo end-to-end su telefono fisico, incluso il nuovo updater; nessun successo hardware viene dichiarato finché quel test non viene eseguito.
