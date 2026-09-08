@@ -7,6 +7,22 @@ $env:RELEASE_TAG = $tag
 
 Push-Location $PSScriptRoot
 try {
+    $branch = (& git branch --show-current).Trim()
+    if ($LASTEXITCODE -ne 0 -or $branch -ne 'main') {
+        throw 'La release locale può essere pubblicata solo dal branch main.'
+    }
+    $dirty = (& git status --porcelain)
+    if ($LASTEXITCODE -ne 0 -or $dirty) {
+        throw 'Working tree non pulito. Committa o annulla le modifiche prima della release.'
+    }
+    & git fetch origin main
+    if ($LASTEXITCODE -ne 0) { throw 'Impossibile aggiornare origin/main.' }
+    $head = (& git rev-parse HEAD).Trim()
+    $originMain = (& git rev-parse origin/main).Trim()
+    if ($LASTEXITCODE -ne 0 -or $head -ne $originMain) {
+        throw 'Il branch main locale deve essere sincronizzato esattamente con origin/main.'
+    }
+
     & npm.cmd run check
     if ($LASTEXITCODE -ne 0) { throw 'Verifiche Node fallite.' }
 
@@ -31,13 +47,11 @@ try {
     gh auth status | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'GitHub CLI non autenticata.' }
 
-    $releases = gh release list --repo JackoPeru/mcp-android --limit 100 --json tagName | ConvertFrom-Json
-    $exists = $null -ne ($releases | Where-Object { $_.tagName -eq $tag } | Select-Object -First 1)
-    if ($exists) {
-        gh release upload $tag $apk $hash --repo JackoPeru/mcp-android --clobber
-    } else {
-        gh release create $tag $apk $hash --repo JackoPeru/mcp-android --title "MCP Android $tag" --generate-notes
+    gh release view $tag --repo JackoPeru/mcp-android *> $null
+    if ($LASTEXITCODE -eq 0) {
+        throw "La release $tag esiste già ed è immutabile."
     }
+    gh release create $tag $apk $hash --repo JackoPeru/mcp-android --title "MCP Android $tag" --generate-notes
     if ($LASTEXITCODE -ne 0) { throw 'Pubblicazione release fallita.' }
 } finally {
     Remove-Item Env:RELEASE_TAG -ErrorAction SilentlyContinue

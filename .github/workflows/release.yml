@@ -11,6 +11,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: android-release-${{ inputs.tag }}
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -19,6 +23,19 @@ jobs:
       RELEASE_TAG: ${{ inputs.tag }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Require main branch and unused release tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$GITHUB_REF_NAME" != "main" ]; then
+            echo "::error::Releases must be dispatched from main."
+            exit 1
+          fi
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "::error::Release $RELEASE_TAG already exists and is immutable."
+            exit 1
+          fi
 
       - name: Require signing key secret
         env:
@@ -78,12 +95,8 @@ jobs:
           apksigner verify --verbose "$apk"
           echo "APK=$apk" >> "$GITHUB_ENV"
 
-      - name: Create or update GitHub release
+      - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release upload "$RELEASE_TAG" "$APK" "$APK.sha256" --clobber
-          else
-            gh release create "$RELEASE_TAG" "$APK" "$APK.sha256" --title "MCP Android $RELEASE_TAG" --generate-notes
-          fi
+          gh release create "$RELEASE_TAG" "$APK" "$APK.sha256" --title "MCP Android $RELEASE_TAG" --generate-notes
