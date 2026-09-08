@@ -23,8 +23,9 @@ if (gradleVersion !== version) fail(`Gradle versionName ${gradleVersion} != ${ve
 const bridgeVersion = bridge.match(/new McpServer\(\{ name: 'android-private-mcp', version: '([^']+)' \}\)/)?.[1];
 if (bridgeVersion !== version) fail(`MCP server version ${bridgeVersion} != ${version}`);
 
-const expectedApk = `mcp-android-${version}-debug.apk`;
-if (!buildScript.includes(expectedApk)) fail(`build-android.ps1 does not target ${expectedApk}`);
+if (!buildScript.includes('mcp-android-$version-debug.apk')) {
+  fail('build-android.ps1 does not derive the APK name from package.json version');
+}
 
 const releaseTag = process.env.RELEASE_TAG?.trim();
 if (releaseTag) {

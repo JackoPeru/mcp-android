@@ -1,4 +1,7 @@
 $ErrorActionPreference = 'Stop'
+$package = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot 'package.json') | ConvertFrom-Json
+$version = [string]$package.version
+if ($version -notmatch '^\d+\.\d+\.\d+$') { throw 'Versione package.json non valida.' }
 if (-not $env:ANDROID_HOME) { $env:ANDROID_HOME = Join-Path $env:LOCALAPPDATA 'Android/Sdk' }
 if (-not (Test-Path -LiteralPath $env:ANDROID_HOME)) { throw 'Android SDK non trovato. Imposta ANDROID_HOME.' }
 if (-not $env:JAVA_HOME -or -not (Test-Path -LiteralPath (Join-Path $env:JAVA_HOME 'bin/java.exe'))) {
@@ -33,9 +36,10 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Build o verifica Android fallita.' }
     $deliveryDirectory = Join-Path $PSScriptRoot 'dist'
     New-Item -ItemType Directory -Force -Path $deliveryDirectory | Out-Null
-    $apkPath = Join-Path $deliveryDirectory 'mcp-android-0.6.0-debug.apk'
+    $apkName = "mcp-android-$version-debug.apk"
+    $apkPath = Join-Path $deliveryDirectory $apkName
     Copy-Item -LiteralPath 'app/build/outputs/apk/debug/app-debug.apk' -Destination $apkPath
     $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $apkPath).Hash.ToLowerInvariant()
-    "$hash  mcp-android-0.6.0-debug.apk" | Set-Content -Encoding ascii -LiteralPath "$apkPath.sha256"
+    "$hash  $apkName" | Set-Content -Encoding ascii -LiteralPath "$apkPath.sha256"
     Write-Output "APK verificato: $apkPath"
 } finally { Pop-Location }

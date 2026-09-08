@@ -25,7 +25,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
-import java.net.URI;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -34,6 +33,7 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Secure updater for public GitHub Releases. Android still requires user confirmation to install. */
 public final class UpdateManager {
@@ -49,6 +49,7 @@ public final class UpdateManager {
     private static final int MAX_REDIRECTS = 5;
     private static final ExecutorService EXECUTOR = Executors.newSingleThreadExecutor();
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
+    private static final AtomicBoolean INSTALLING = new AtomicBoolean(false);
     private static final Set<String> DOWNLOAD_HOSTS = new HashSet<>();
     private static final Set<String> API_HOSTS = new HashSet<>();
 
@@ -144,6 +145,10 @@ public final class UpdateManager {
             state(callback, "Abilita «Installa app sconosciute», poi torna in MCP Android.");
             return;
         }
+        if (!INSTALLING.compareAndSet(false, true)) {
+            state(callback, "Un aggiornamento è già in corso.");
+            return;
+        }
         activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(PENDING).apply();
         state(callback, "Scaricamento aggiornamento…");
         EXECUTOR.execute(() -> {
@@ -152,9 +157,14 @@ public final class UpdateManager {
                 commitInstall(activity, apk);
                 state(callback, "Download verificato. Conferma l'installazione Android.");
             } catch (Exception e) {
+                INSTALLING.set(false);
                 error(callback, "Aggiornamento non riuscito: " + safeMessage(e));
             }
         });
+    }
+
+    static void installFinished() {
+        INSTALLING.set(false);
     }
 
     public static void resumePending(Activity activity, Callback callback) {
@@ -188,8 +198,8 @@ public final class UpdateManager {
             JSONObject asset = assets.getJSONObject(i);
             String name = asset.optString("name", "");
             String url = asset.optString("browser_download_url", "");
-            if (apkName.equals(name)) apkUrl = requireDownloadUrl(url);
-            else if (hashName.equals(name)) hashUrl = requireDownloadUrl(url);
+            if (apkName.equals(name)) apkUrl = UpdateValidation.requireDownloadUrl(url);
+            else if (hashName.equals(name)) hashUrl = UpdateValidation.requireDownloadUrl(url);
         }
         if (apkUrl == null || hashUrl == null) throw new IOException("Release assets missing");
         String notes = json.optString("body", "");
@@ -199,7 +209,7 @@ public final class UpdateManager {
 
     private static File downloadAndVerify(Activity activity, Release release, Callback callback)
             throws Exception {
-        String expected = parseHash(new String(
+        String expected = UpdateValidation.parseHash(new String(
                 readBounded(open(new URL(release.hashUrl), DOWNLOAD_HOSTS), MAX_HASH_BYTES),
                 StandardCharsets.US_ASCII), release.apkName);
 
@@ -210,43 +220,48 @@ public final class UpdateManager {
         if (partial.exists() && !partial.delete()) throw new IOException("Old partial update locked");
         if (ready.exists() && !ready.delete()) throw new IOException("Old update locked");
 
-        HttpURLConnection connection = open(new URL(release.apkUrl), DOWNLOAD_HOSTS);
-        long declared = connection.getContentLengthLong();
-        if (declared > MAX_APK_BYTES) throw new IOException("APK too large");
-        MessageDigest digest = MessageDigest.getInstance("SHA-256");
-        long total = 0;
-        try (InputStream input = new BufferedInputStream(connection.getInputStream());
-             OutputStream output = new FileOutputStream(partial)) {
-            byte[] buffer = new byte[64 * 1024];
-            int read;
-            long nextProgress = 5L * 1024L * 1024L;
-            while ((read = input.read(buffer)) >= 0) {
-                if (read == 0) continue;
-                total += read;
-                if (total > MAX_APK_BYTES) throw new IOException("APK too large");
-                digest.update(buffer, 0, read);
-                output.write(buffer, 0, read);
-                if (total >= nextProgress) {
-                    final long current = total;
-                    state(callback, String.format(Locale.ROOT,
-                            "Scaricati %.1f MB…", current / 1048576.0));
-                    nextProgress += 5L * 1024L * 1024L;
-                }
+        boolean completed = false;
+        try {
+            HttpURLConnection connection = open(new URL(release.apkUrl), DOWNLOAD_HOSTS);
+            long declared = connection.getContentLengthLong();
+            if (declared > MAX_APK_BYTES) {
+                connection.disconnect();
+                throw new IOException("APK too large");
             }
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            long total = 0;
+            try (InputStream input = new BufferedInputStream(connection.getInputStream());
+                 OutputStream output = new FileOutputStream(partial)) {
+                byte[] buffer = new byte[64 * 1024];
+                int read;
+                long nextProgress = 5L * 1024L * 1024L;
+                while ((read = input.read(buffer)) >= 0) {
+                    if (read == 0) continue;
+                    total += read;
+                    if (total > MAX_APK_BYTES) throw new IOException("APK too large");
+                    digest.update(buffer, 0, read);
+                    output.write(buffer, 0, read);
+                    if (total >= nextProgress) {
+                        final long current = total;
+                        state(callback, String.format(Locale.ROOT,
+                                "Scaricati %.1f MB…", current / 1048576.0));
+                        nextProgress += 5L * 1024L * 1024L;
+                    }
+                }
+            } finally {
+                connection.disconnect();
+            }
+            String actual = hex(digest.digest());
+            if (!MessageDigest.isEqual(actual.getBytes(StandardCharsets.US_ASCII),
+                    expected.getBytes(StandardCharsets.US_ASCII))) {
+                throw new IOException("SHA-256 non valido");
+            }
+            if (!partial.renameTo(ready)) throw new IOException("Impossibile finalizzare APK");
+            completed = true;
+            return ready;
         } finally {
-            connection.disconnect();
+            if (!completed && partial.exists()) partial.delete();
         }
-        String actual = hex(digest.digest());
-        if (!MessageDigest.isEqual(actual.getBytes(StandardCharsets.US_ASCII),
-                expected.getBytes(StandardCharsets.US_ASCII))) {
-            partial.delete();
-            throw new IOException("SHA-256 non valido");
-        }
-        if (!partial.renameTo(ready)) {
-            partial.delete();
-            throw new IOException("Impossibile finalizzare APK");
-        }
-        return ready;
     }
 
     private static void commitInstall(Context context, File apk) throws Exception {
@@ -282,27 +297,6 @@ public final class UpdateManager {
         }
     }
 
-    private static String parseHash(String sidecar, String apkName) throws IOException {
-        String line = sidecar.trim();
-        if (line.length() > 512) throw new IOException("Invalid checksum file");
-        String[] parts = line.split("\\s+", 2);
-        if (parts.length != 2 || !parts[0].matches("^[a-fA-F0-9]{64}$")) {
-            throw new IOException("Invalid checksum file");
-        }
-        String named = parts[1].trim();
-        if (named.startsWith("*")) named = named.substring(1);
-        if (!apkName.equals(named)) throw new IOException("Checksum filename mismatch");
-        return parts[0].toLowerCase(Locale.ROOT);
-    }
-
-    private static String requireDownloadUrl(String raw) throws Exception {
-        URI uri = new URI(raw);
-        if (!"https".equalsIgnoreCase(uri.getScheme()) || !"github.com".equalsIgnoreCase(uri.getHost())) {
-            throw new IOException("Invalid release URL");
-        }
-        return uri.toString();
-    }
-
     private static HttpURLConnection open(URL initial, Set<String> hosts) throws Exception {
         URL current = initial;
         for (int redirect = 0; redirect <= MAX_REDIRECTS; redirect++) {
@@ -314,7 +308,7 @@ public final class UpdateManager {
             connection.setConnectTimeout(8000);
             connection.setReadTimeout(15000);
             connection.setInstanceFollowRedirects(false);
-            connection.setRequestProperty("User-Agent", "MCP-Android-Updater/0.6.0");
+            connection.setRequestProperty("User-Agent", "MCP-Android-Updater");
             int status = connection.getResponseCode();
             if (status >= 300 && status <= 399) {
                 String location = connection.getHeaderField("Location");
