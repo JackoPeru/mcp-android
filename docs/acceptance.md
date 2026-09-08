@@ -1,79 +1,143 @@
-# Acceptance v0.7.2
+# Acceptance v0.8.0
 
 ## Scope verificato
 
-- Bridge MCP stdio + HTTP privato verso il telefono.
-- Configurazione vincolata a IPv4 Tailscale 100.64.0.0/10 e token esadecimale da 256 bit.
-- **65 tool MCP** discovery via processo stdio.
-- Observation engine: `screen_context` compatto, snapshot/hash SHA-256, cache memory-only da 8 e `screen_diff`.
-- Synchronization engine: `wait_idle`, `wait_change`, `wait_activity`, `scroll_to` bounded con stop su stato ripetuto/fine contenuto.
-- Action engine: selector UI, screenshot, tap/long press/swipe/scroll, double tap, drag, pinch e coordinate normalizzate 0..1000.
-- `press_key`: Home/Back via Accessibilità; keyevent aggiuntivi solo tramite Shizuku già autorizzato.
-- `act_and_observe`: snapshot prima, azione validata, wait semantico, snapshot dopo e diff/context in una singola RPC; nessun retry cieco.
-- `flow`: runtime locale JSON bounded fino a 40 step / 20 s con guardie `ifPresent`/`ifAbsent`, capture, `stop|continue`, assert e trace.
-- Il flow non può invocare shell, force-stop, JavaScript arbitrario o mutazioni SAF.
-- Capability router: categorie tool, requisiti/backend, classe operazione e availability runtime; nessun fallback privilegiato automatico.
-- Diagnostica metadata-only: stato servizio/Tailscale, request queue, snapshot cache, capability, eventi e trace recenti.
-- Trace journal in memoria: massimo 128 entry, senza parametri azione, testo digitato, command shell o body notifica.
-- WebView-like nodes rilevati tramite `webViewDetected`; CDP completo non è parte della v0.7.
-- App discovery/details/settings, clipboard, intent, device info, volume e media.
-- NotificationListenerService: list, open, dismiss e direct reply.
-- SAF: read/list/stat/search e mutazioni write/mkdir/rename/move/copy/delete solo nelle root persistite autorizzate.
-- Event journal in memoria + long poll, senza memorizzare il testo degli eventi.
-- Shell Termux tramite RUN_COMMAND con consenso separato.
-- Shell Shizuku tramite UserService con consenso separato e senza fallback automatico.
-- Operazioni Shizuku nominate: `force_stop_app` e `logcat` bounded/redatto.
-- Stop del controllo remoto: chiude HTTP, unregistera callback/watchdog VPN, azzera gli eventTypes Accessibility, richiede unbind del Notification Listener e disconnette completamente Shizuku.
-- Updater GitHub Releases con controllo versione, verifica checksum e PackageInstaller.
-- Verifica preventiva dell'APK candidato: package, versionName, versionCode e signer SHA-256.
-- Controllo di coerenza versione tra Node, Gradle, bridge MCP, script APK e tag release.
-- CI GitHub per test/build e workflow separata per release firmate e immutabili.
-- RPC separato in domini di concorrenza UI, FILE e SHELL; wait/event read-only senza lock UI.
-- Recovery automatica del socket MCP dopo perdita/ritorno di Tailscale.
-- Profilo energetico v0.7.2:
-  - monitor VPN event-driven via ConnectivityManager.NetworkCallback;
-  - watchdog Tailscale ridotto a 1 controllo/15 min invece di 1/2 s;
-  - STOP imposta Accessibility eventTypes=0 mantenendo il grant utente;
-  - START ripristina solo gli eventi UI necessari + notificationTimeout 100 ms;
-  - Notification Listener requestUnbind() allo STOP e requestRebind() allo START;
-  - Shizuku completamente lazy: nessuna init aprendo l'app/avviando MCP se non viene usato;
-  - binder listener Shizuku rimosso allo STOP;
-  - pool RPC con 0 worker permanenti in idle;
-  - timeout scheduler RPC lascia morire il core worker dopo 30 s di idle;
-  - updater con 0 core worker e max 1 worker che termina dopo 30 s di idle;
-  - polling semantico dei wait ridotto da 100 ms a 250 ms.
+- Bridge MCP stdio + HTTP autenticato verso il telefono.
+- **65 tool MCP** invariati rispetto alla v0.7.
+- Dual transport:
+  - LAN Wi-Fi RFC1918 su TCP 8765;
+  - Tailscale 100.64.0.0/10 su TCP 8765;
+  - listener indipendenti, entrambi legati a IPv4 numerici concreti;
+  - nessun bind RPC su `0.0.0.0` o `::`;
+  - LAN limitata anche ai client della stessa subnet Wi-Fi.
+- `TransportManager` event-driven:
+  - callback Android Wi-Fi;
+  - callback Android VPN;
+  - riconciliazione debounced;
+  - watchdog di sicurezza ogni 15 minuti mentre START;
+  - teardown completo mentre STOP.
+- Discovery LAN:
+  - UDP 8766;
+  - massimo 512 byte;
+  - protocollo/versione/nonce strettamente validati;
+  - risposta unicast;
+  - nessun token o dato del dispositivo;
+  - sorgente obbligatoriamente RFC1918 e nella stessa subnet;
+  - rate limit 1 risposta/s per IP;
+  - massimo 64 sorgenti conservate in RAM.
+  - un errore di bind della discovery UDP non spegne il listener RPC LAN TCP.
+- Bridge LAN-first:
+  - endpoint LAN configurato opzionale;
+  - discovery LAN one-shot;
+  - candidato discovery autenticato tramite RPC `status`;
+  - Tailscale fallback;
+  - cache LAN validata con TTL breve per evitare una RPC `status` prima di ogni operazione;
+  - nessun replay automatico del metodo richiesto dopo un errore di trasporto con esito incerto.
+- Compatibilità legacy:
+  - `ANDROID_MCP_URL=http://100.x.y.z:8765` + token continua a funzionare in modalità Tailscale-only.
+- Nuova configurazione:
+  - `ANDROID_MCP_LAN_URL`;
+  - `ANDROID_MCP_TAILSCALE_URL`;
+  - `ANDROID_MCP_TRANSPORT=auto|lan|tailscale`;
+  - `ANDROID_MCP_DISCOVERY=true|false`.
+- Stato/diagnostica:
+  - endpoint LAN;
+  - endpoint Tailscale;
+  - trasporto preferito;
+  - monitor rete `event_driven_dual`;
+  - nessun token, SSID, BSSID o MAC esposto.
+- UI Android:
+  - stato sessione START/STOP;
+  - LAN disponibile/non disponibile;
+  - Tailscale disponibile/non disponibile;
+  - trasporto preferito.
+- Tutte le funzionalità v0.7 restano presenti:
+  - snapshot/diff semantico;
+  - `act_and_observe`;
+  - flow locali bounded;
+  - gesture;
+  - app/intenti;
+  - notifiche/media;
+  - SAF;
+  - Termux;
+  - Shizuku;
+  - logcat/force-stop;
+  - capability router;
+  - diagnostics/trace.
+
+## Modello energetico verificato dal codice
+
+In modalità START:
+
+- Wi-Fi e VPN sono seguiti tramite callback Android, non polling rapido.
+- Il watchdog effettua al massimo 4 riconciliazioni/ora in assenza di eventi.
+- Ogni listener TCP resta bloccato su `accept()` quando inattivo.
+- Il responder UDP LAN resta bloccato su `receive()` quando inattivo.
+- Il pool RPC ha 0 worker core permanenti.
+- Il timeout scheduler può terminare il proprio worker dopo 30 s di idle.
+- Il worker updater non resta residente permanentemente.
+- Screenshot e scansioni UI vengono eseguiti solo su richiesta.
+- La cache LAN validata riduce le RPC `status` di probe durante sequenze rapide.
+
+In casa è possibile lasciare Tailscale completamente spento e mantenere MCP raggiungibile tramite LAN.
+
+In modalità STOP:
+
+- listener TCP LAN chiuso;
+- listener TCP Tailscale chiuso;
+- discovery UDP chiusa;
+- callback Wi-Fi/VPN unregisterate;
+- watchdog rimosso;
+- Accessibility `eventTypes=0`;
+- Notification Listener unbound;
+- Shizuku disconnesso/lazy;
+- nessun polling MCP periodico.
+
+Questa verifica riguarda architettura, lifecycle e test software. **Non viene dichiarata una percentuale di batteria/ora senza misura su telefono fisico.**
 
 ## Boundary fisico
 
-Nessun telefono fisico è stato collegato durante questa implementazione. Build, test JVM e endpoint simulati non dimostrano:
+Nessun telefono fisico è stato collegato durante l'implementazione v0.8.0. Build, test JVM e fixture Node non dimostrano ancora:
 
-- reachability Tailscale reale del telefono;
-- comportamento del produttore in background;
-- gesture/screenshot reali nelle singole app;
-- latenza reale di `screen_context` e riduzione payload rispetto a `ui_tree`;
-- `wait_idle`/`wait_change` su UI OEM/animazioni reali;
-- `scroll_to`, double tap, drag e pinch reali;
-- flow deterministico di 5+ step su un'app reale;
-- WebView detection sulle app effettivamente usate;
-- restrizioni clipboard specifiche del device;
-- Notification Listener e direct reply reali;
-- capability concrete del provider SAF selezionato;
-- Termux RUN_COMMAND su una installazione reale;
-- Shizuku binder, richiesta consenso, UserService, keyevent, force-stop e logcat reali;
-- download e installazione dell'updater su un telefono reale;
-- recovery Tailscale durante un flow in corso.
+- ricezione reale del broadcast UDP 8766 su una specifica ROM Android;
+- bind simultaneo reale dei listener LAN e Tailscale;
+- comportamento del routing Android con Tailscale attivo e Wi-Fi locale;
+- discovery LAN tra il PC agente e il telefono su router/AP reali;
+- cambio DHCP dell'IP Wi-Fi;
+- passaggio reale LAN → Tailscale quando si lascia la rete domestica;
+- passaggio Tailscale → LAN al rientro;
+- comportamento con AP/client isolation;
+- firewall del PC/router;
+- recovery reale dopo cambio Wi-Fi/VPN;
+- consumo batteria LAN-only, Tailscale-only o dual;
+- gesture/screenshot/flow sulle app reali;
+- Notification Listener, Termux, Shizuku, SAF e updater sul dispositivo.
 
-Questi punti richiedono il collaudo sul telefono.
+Questi punti richiedono collaudo end-to-end sul telefono.
 
 ## Verifiche automatiche eseguite il 2026-09-08
 
 - Node: v24.19.0.
-- `npm.cmd run check`: controllo versione + **6 test Node, tutti passati**.
-- Discovery MCP via processo stdio: **65 tool**.
-- Validazione bridge: path traversal, range file, coordinate, schemi, auth HTTP, redirect refusal, timeout e limite risposta.
-- Validazione v0.7 lato Node: flow non ammessi respinti prima della RPC, composite action allowlist e discovery dei nuovi tool.
+- `npm.cmd run check`:
+  - coerenza versione: OK;
+  - **15 test Node, tutti passati**.
+- Test Node v0.8 includono:
+  - config Tailscale legacy;
+  - config dual transport;
+  - validazione URL LAN/Tailscale;
+  - discovery UDP one-shot;
+  - assenza del token nel datagramma discovery;
+  - validazione nonce;
+  - timeout discovery bounded;
+  - LAN-first;
+  - fallback Tailscale;
+  - auth failure non trasformato in fallback;
+  - metodo mutante inviato una sola volta;
+  - cache endpoint LAN validata;
+  - UI dual transport;
+  - discovery dei 65 tool MCP tramite stdio.
 - `build-android.ps1`: assembleDebug + testDebugUnitTest + lintDebug completati.
-- Test Android/JVM: **50 test, 0 failure, 0 error, 0 skipped**:
+- Android/JVM: **68 test, 0 failure, 0 error, 0 skipped**:
   - ActionRegistryTest: 2
   - ApkIdentityValidationTest: 4
   - CapabilityRouterTest: 3
@@ -82,85 +146,104 @@ Questi punti richiedono il collaudo sul telefono.
   - FlowValidationTest: 4
   - HttpBoundaryTest: 4
   - IdleExecutorPolicyTest: 2
+  - LanDiscoveryProtocolTest: 2
+  - LanDiscoveryRateLimitTest: 2
   - LowPowerSessionPolicyTest: 3
+  - NetworkAddressPolicyTest: 4
   - NetworkRecoveryPolicyTest: 3
   - RequestScopeTest: 3
+  - RpcEndpointServerPolicyTest: 3
   - RpcPolicyTest: 2
   - ScreenSnapshotStoreTest: 3
   - SecurityValidatorsTest: 5
   - TraceJournalTest: 2
+  - TransportDiagnosticsTest: 3
+  - TransportReconciliationTest: 4
   - UiLoopPolicyTest: 2
   - UpdateValidationTest: 2
   - VersioningTest: 2
 - Lint: **0 errori, 1 warning**:
   - targetSdk 35 non è l'ultimo SDK disponibile nell'ambiente.
-- Manifest merged verificato:
-  - minSdk 30;
-  - targetSdk 35;
-  - ShizukuProvider presente;
-  - permesso Shizuku API_V23 presente;
-  - metadata V3_SUPPORT presente;
-  - Termux RUN_COMMAND dichiarato;
-  - AccessibilityService e NotificationListenerService presenti;
-  - REQUEST_INSTALL_PACKAGES e UpdateInstallReceiver presenti.
-- Firma APK:
-  - APK Signature Scheme v2: valida;
-  - 1 signer;
-  - Android Debug, RSA 2048.
+
+## APK
+
 - Package: `com.example.androidmcp`.
-- versionCode: **10**.
-- versionName: **0.7.2**.
-- APK: `dist/mcp-android-0.7.2-debug.apk`.
-- Dimensione APK: **2,715,115 byte**.
-- SHA-256: `1945e241a0fcf184bc292753c0a834d4583641b94ed448609e0453fc2685363d`.
-- Certificato signer SHA-256: `7be7c380f31c81c050a86ea8cefd4ec3bd41972ddd864a8edb97b1e20c84823f`.
-- Il signer coincide con il fingerprint atteso dalla release workflow e dalle release precedenti compatibili con l'updater.
+- versionCode: **11**.
+- versionName: **0.8.0**.
+- minSdk: **30**.
+- targetSdk: **35**.
+- APK: `dist/mcp-android-0.8.0-debug.apk`.
+- Dimensione: **2,983,235 byte**.
+- SHA-256: `7ddb71497145d54c53c2c4d263b41124895c0da42565c0cf45f344859c33fb6a`.
+- APK Signature Scheme v2: **valida**.
+- Signer: **1**.
+- Chiave: RSA 2048, Android Debug.
+- Certificato signer SHA-256:
+  `7be7c380f31c81c050a86ea8cefd4ec3bd41972ddd864a8edb97b1e20c84823f`.
+- Il signer coincide con le release precedenti compatibili con l'updater.
 
 ## Sicurezza / trust boundary
 
-- Il bridge PC rifiuta host non Tailscale e redirect HTTP.
-- Il token non viene messo in URL e non viene restituito dai tool.
-- L'app non avvia automaticamente il servizio remoto al boot.
+- RPC TCP richiede sempre il bearer token da 256 bit.
+- Token rotation invalida entrambe le reti.
+- Discovery UDP non accede a `SecretStore`.
+- Discovery non trasmette token, authorization header o dati privati.
+- Una discovery valida non autentica il telefono: il bridge esegue successivamente una RPC autenticata.
+- LAN RPC:
+  - bind su IPv4 RFC1918 concreto;
+  - client obbligatoriamente nella stessa subnet.
+- Tailscale RPC:
+  - bind su IPv4 100.64.0.0/10 concreto;
+  - client ammessi solo in 100.64.0.0/10.
+- Nessun listener RPC pubblico.
+- Nessun `0.0.0.0` / `::` per TCP RPC.
+- Nessun mDNS, multicast lock, port forwarding, UPnP o Funnel.
+- Errori 401/auth non vengono reinterpretati come problemi di rete.
+- Dopo il dispatch di una RPC mutante, timeout/disconnessione restituiscono esito incerto e non causano replay automatico sull'altro trasporto.
 - PIN, biometria, keyguard e finestre protette non vengono aggirati.
-- Password field Accessibilità sono redatti.
-- Screenshot non viene incluso automaticamente in `screen_context` o `act_and_observe`.
-- Gli snapshot sono bounded (8), memory-only e contengono solo il contesto già sanificato.
-- Le operazioni SAF non accettano path assoluti, URI, backslash, dot/parent traversal o uscita dalla root.
-- Le mutazioni SAF richiedono un grant write persistito; un grant read resta read-only.
-- `android_shell` richiede Termux + permesso RUN_COMMAND.
-- `android_shizuku_shell`, `android_force_stop_app`, `android_logcat` e i keyevent non-Accessibility richiedono binder Shizuku vivo + consenso Shizuku.
-- Shizuku può operare come UID shell o root a seconda di come l'utente ha avviato Shizuku; MCP Android non effettua escalation e non sceglie Shizuku implicitamente.
-- `force_stop_app` non accetta il package di MCP Android stesso.
-- Logcat è bounded e redige pattern bearer/OpenAI-style prima della risposta.
-- Il flow DSL non può invocare shell, mutazioni SAF, force-stop, JavaScript arbitrario o reflection.
-- Il flow è limitato a 40 step e 20 s; i timeout dei singoli step vengono ulteriormente limitati dal deadline restante.
-- I contenuti UI, notifiche, clipboard, file e output shell sono dati non attendibili e non autorizzano nuove azioni.
-- Timeout di gesture/shell possono lasciare l'esito incerto; `act_and_observe` non ripete automaticamente l'azione e restituisce `outcomeUnknown`.
-- Il trace journal conserva solo metadata (tipo operazione, durata, stato, codice errore), massimo 128 entry.
-- L'updater accetta metadata solo dall'endpoint GitHub configurato e limita i redirect agli host release consentiti.
-- L'updater rifiuta tag/versioni ambigui, asset con nome inatteso, checksum non valido e APK oltre 100 MiB.
-- Prima di PackageInstaller, l'updater rifiuta un APK con package/versionName inattesi, versionCode non crescente o signer diverso dall'app installata.
-- Le release esistenti non possono essere sovrascritte dagli script di progetto; la pubblicazione locale richiede `main` pulito e sincronizzato con `origin/main`.
-- `events_wait`, `wait_idle`, `wait_change`, `wait_activity`, diagnostics e altre letture non occupano il lock UI; filesystem, UI e shell sono serializzati solo nei rispettivi domini.
-- Timeout: 8 s per I/O socket, **25 s** deadline richiesta sul telefono, **30 s** timeout bridge PC; il flow resta limitato a **20 s**.
-- Una perdita temporanea di Tailscale non termina il foreground service: il socket viene chiuso e riaperto automaticamente quando la VPN torna.
-- Il monitor Tailscale non esegue più discovery ogni 2 secondi. Le variazioni VPN attivano una callback event-driven; resta un watchdog ogni 15 minuti come fallback.
-- Il server HTTP resta bloccato su `accept()` in idle e il pool RPC non mantiene worker permanenti senza richieste.
-- Accessibility non usa più `TYPES_ALL_MASK`: durante una sessione vengono ricevute solo le classi necessarie; con controllo remoto STOP gli eventTypes vengono impostati a 0.
-- Il Notification Listener viene unbound allo STOP e richiesto nuovamente solo quando parte una sessione remota.
-- Shizuku non viene inizializzato dall'apertura dell'app o dall'avvio del foreground service; viene inizializzato solo da status/permission/execute Shizuku e viene completamente disconnesso allo STOP.
-- Il worker dell'updater e il timeout scheduler RPC non rimangono residenti indefinitamente dopo aver finito il lavoro.
+- Le altre boundary v0.7 su SAF, shell, Shizuku, flow, trace e updater restano invariate.
 
-## Fonti di riferimento
+## Collaudo fisico richiesto
 
-- Android Storage Access Framework / DocumentsContract.
-- Android AccessibilityService.
-- Android NotificationListenerService.
-- Tailscale Android.
-- Model Context Protocol TypeScript SDK.
-- Termux RUN_COMMAND Intent.
-- Shizuku API 13.1.5 / UserService.
+### LAN-only
+
+1. Spegnere Tailscale sul telefono.
+2. Collegare telefono e agente alla stessa Wi-Fi.
+3. Premere START su MCP Android.
+4. Verificare che l'app mostri un endpoint LAN.
+5. Avviare il bridge con `ANDROID_MCP_TRANSPORT=auto` e discovery attiva.
+6. Verificare discovery + RPC `status`.
+7. Eseguire `screen_context` e una flow breve.
+
+### Dual
+
+1. Attivare Tailscale mantenendo la Wi-Fi.
+2. Verificare che compaiano entrambi gli endpoint.
+3. Verificare che `auto` scelga LAN.
+4. Disattivare Wi-Fi e verificare che una nuova RPC usi Tailscale.
+5. Riattivare Wi-Fi e verificare il ritorno a LAN.
+
+### DHCP / cambio rete
+
+1. Cambiare rete Wi-Fi o rinnovare l'IP.
+2. Verificare chiusura listener vecchio.
+3. Verificare nuovo listener.
+4. Verificare invalidazione del vecchio endpoint/cache e nuova discovery.
+
+### STOP
+
+Verificare che TCP 8765 LAN/Tailscale e UDP 8766 non siano più raggiungibili e che la diagnostica/Android non mostri callback o backend rimasti attivi.
+
+### Batteria
+
+Misurare separatamente per alcune ore:
+
+- START + LAN-only idle;
+- START + Tailscale-only idle;
+- START + LAN e Tailscale;
+- automazione intensa;
+- STOP.
 
 ## Stato
 
-Implementazione desktop/build **completa per v0.7.2**. Il codice soddisfa i milestone v0.7 previsti dalla spec e include il pass ultra-low-power. Con STOP non restano polling MCP, callback/watchdog VPN, Notification Listener bound, eventi Accessibility richiesti o backend Shizuku inizializzati; il grant Accessibility può comunque mantenere il servizio residente in RAM senza loop CPU MCP. Non viene dichiarato un consumo batteria percentuale senza collaudo su telefono fisico; Tailscale, schermo acceso e frequenza delle automazioni possono incidere più del processo MCP stesso. WebView/CDP completo, visual locator automatico e profili app restano superfici opzionali/future. Il blocker rimasto è il collaudo end-to-end su telefono fisico; nessun successo hardware viene dichiarato finché quel test non viene eseguito.
+Implementazione software/build **completa per v0.8.0 dual transport**. La release è pronta per il collaudo fisico, ma LAN broadcast, routing reale e consumo batteria non vengono dichiarati verificati finché non vengono provati sul telefono.

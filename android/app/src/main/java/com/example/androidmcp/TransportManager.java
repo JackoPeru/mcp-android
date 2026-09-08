@@ -190,7 +190,9 @@ public final class TransportManager {
 
         String error = "";
         if (plan.startLan || plan.restartLan) {
-            try { startLan(desiredLan); }
+            try {
+                if (!startLan(desiredLan)) error = "LAN discovery unavailable";
+            }
             catch (Exception e) { error = "LAN listener unavailable"; }
         }
         if (plan.startTailscale || plan.restartTailscale) {
@@ -262,18 +264,19 @@ public final class TransportManager {
         return null;
     }
 
-    private void startLan(TransportEndpoint endpoint) throws Exception {
-        if (endpoint == null) return;
+    private boolean startLan(TransportEndpoint endpoint) throws Exception {
+        if (endpoint == null) return false;
         RpcEndpointServer server = new RpcEndpointServer(context, dispatcher, endpoint,
                 RpcEndpointServer.lanClientPolicy(endpoint.address, endpoint.prefixLength));
         server.start();
+        lanServer = server;
+        lanEndpoint = endpoint;
         try {
             discoveryResponder.start(endpoint);
-            lanServer = server;
-            lanEndpoint = endpoint;
+            return true;
         } catch (Exception e) {
-            server.stop();
-            throw e;
+            discoveryResponder.stop();
+            return false;
         }
     }
 

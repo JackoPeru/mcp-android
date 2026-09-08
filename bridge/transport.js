@@ -35,15 +35,18 @@ export function validateTailscaleOrigin(value) {
 }
 
 export class TransportResolver {
-  constructor(config, { discover, probe }) {
+  constructor(config, { discover, probe, now = () => Date.now(), validationTtlMs = 5_000 }) {
     this.preference = config.preference ?? 'auto';
     this.configuredLanUrl = config.lanUrl ?? null;
     this.cachedLanUrl = this.configuredLanUrl;
     this.cachedLanSource = this.configuredLanUrl ? 'configured' : null;
+    this.validatedLanAt = 0;
     this.tailscaleUrl = config.tailscaleUrl ?? null;
     this.discovery = config.discovery !== false;
     this.discover = discover;
     this.probe = probe;
+    this.now = now;
+    this.validationTtlMs = validationTtlMs;
   }
 
   async resolve() {
@@ -62,13 +65,18 @@ export class TransportResolver {
 
   async resolveLan() {
     if (this.cachedLanUrl) {
+      if (this.validatedLanAt > 0 && this.now() - this.validatedLanAt <= this.validationTtlMs) {
+        return this.cachedLanUrl;
+      }
       try {
         await this.probe(this.cachedLanUrl);
+        this.validatedLanAt = this.now();
         return this.cachedLanUrl;
       } catch (error) {
         if (this.cachedLanSource === 'configured' && error?.kind !== 'unreachable') throw error;
         this.cachedLanUrl = null;
         this.cachedLanSource = null;
+        this.validatedLanAt = 0;
       }
     }
 
@@ -82,11 +90,22 @@ export class TransportResolver {
         await this.probe(url);
         this.cachedLanUrl = url;
         this.cachedLanSource = 'discovered';
+        this.validatedLanAt = this.now();
         return url;
       } catch {
         // Discovery is unauthenticated; reject spoofed/unreachable candidates and continue.
       }
     }
     return null;
+  }
+
+  noteSuccess(url, transport) {
+    if (transport !== 'lan') return;
+    let validated;
+    try { validated = validateLanOrigin(url); }
+    catch { return; }
+    this.cachedLanUrl = validated;
+    if (!this.cachedLanSource) this.cachedLanSource = 'discovered';
+    this.validatedLanAt = this.now();
   }
 }

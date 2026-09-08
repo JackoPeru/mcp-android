@@ -43,7 +43,9 @@ export class AndroidClient {
 
   async call(method, params = {}) {
     const endpoint = this.url ? { url: this.url, transport: 'direct' } : await this.resolver.resolve();
-    return this.callOnce(endpoint.url, method, params, false);
+    const result = await this.callOnce(endpoint.url, method, params, false);
+    this.resolver?.noteSuccess?.(endpoint.url, endpoint.transport);
+    return result;
   }
 
   async callOnce(url, method, params = {}, probe = false) {

@@ -62,3 +62,29 @@ test('actual mutating RPC is dispatched once and never replayed across transport
   assert.equal(resolves, 1);
   assert.equal(fetches, 1);
 });
+
+test('recently validated LAN cache avoids a status probe before every RPC', async () => {
+  let probes = 0;
+  let now = 1_000;
+  const resolver = new TransportResolver({
+    preference: 'auto',
+    lanUrl: 'http://192.168.1.84:8765/',
+    tailscaleUrl: 'http://100.100.1.2:8765/',
+    discovery: true,
+  }, {
+    discover: async () => [],
+    probe: async () => { probes++; return true; },
+    now: () => now,
+    validationTtlMs: 5_000,
+  });
+
+  assert.equal((await resolver.resolve()).transport, 'lan');
+  assert.equal(probes, 1);
+  resolver.noteSuccess('http://192.168.1.84:8765/', 'lan');
+  now += 1_000;
+  assert.equal((await resolver.resolve()).transport, 'lan');
+  assert.equal(probes, 1);
+  now += 5_001;
+  assert.equal((await resolver.resolve()).transport, 'lan');
+  assert.equal(probes, 2);
+});
