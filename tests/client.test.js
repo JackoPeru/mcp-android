@@ -5,11 +5,26 @@ import { once } from 'node:events';
 import { AndroidClient, readConfig } from '../bridge/client.js';
 
 const token = 'a'.repeat(64);
-test('config only accepts explicit Tailscale IPv4, no credentials or URL redirects', () => {
+test('config accepts legacy Tailscale and secure dual transport origins', () => {
   for (const host of ['https://example.com', 'http://192.168.1.5:8765', 'http://100.63.0.1', 'http://100.128.0.1', 'http://user:pass@100.64.0.1', 'http://100.64.0.1/path', 'http://100.64.0.1/?token=x']) {
     assert.throws(() => readConfig({ ANDROID_MCP_URL: host, ANDROID_MCP_TOKEN: token }));
   }
-  assert.equal(readConfig({ ANDROID_MCP_URL: 'http://100.100.1.2:8765', ANDROID_MCP_TOKEN: token }).url, 'http://100.100.1.2:8765/');
+  const legacy = readConfig({ ANDROID_MCP_URL: 'http://100.100.1.2:8765', ANDROID_MCP_TOKEN: token });
+  assert.equal(legacy.url, 'http://100.100.1.2:8765/');
+  assert.equal(legacy.preference, 'tailscale');
+  const dual = readConfig({
+    ANDROID_MCP_LAN_URL: 'http://192.168.1.84:8765',
+    ANDROID_MCP_TAILSCALE_URL: 'http://100.100.1.2:8765',
+    ANDROID_MCP_TRANSPORT: 'auto',
+    ANDROID_MCP_TOKEN: token,
+  });
+  assert.equal(dual.lanUrl, 'http://192.168.1.84:8765/');
+  assert.equal(dual.tailscaleUrl, 'http://100.100.1.2:8765/');
+  assert.equal(dual.preference, 'auto');
+  assert.equal(dual.discovery, true);
+  assert.throws(() => readConfig({ ANDROID_MCP_LAN_URL: 'http://8.8.8.8:8765', ANDROID_MCP_TOKEN: token }));
+  assert.throws(() => readConfig({ ANDROID_MCP_TAILSCALE_URL: 'http://192.168.1.2:8765', ANDROID_MCP_TOKEN: token }));
+  assert.throws(() => readConfig({ ANDROID_MCP_TRANSPORT: 'public', ANDROID_MCP_TOKEN: token }));
   assert.throws(() => readConfig({ ANDROID_MCP_URL: 'http://100.100.1.2', ANDROID_MCP_TOKEN: 'short' }));
 });
 
