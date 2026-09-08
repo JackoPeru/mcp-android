@@ -17,6 +17,7 @@ public final class RpcPolicy {
             case "wait_change":
             case "wait_activity":
             case "device_info":
+            case "app_details":
             case "events":
             case "events_wait":
             case "shell_status":

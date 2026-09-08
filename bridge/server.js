@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url';
 import { AndroidClient, readConfig } from './client.js';
 
 const coordinate = z.number().int().min(0).max(16384);
+const normalizedCoordinate = z.number().int().min(0).max(1000);
 const path = z.string().max(1024).refine(value => value === '' || (
   !value.startsWith('/') && !/[\\\x00-\x1f:]/.test(value) &&
   value.split('/').every(part => part && part !== '.' && part !== '..')
@@ -46,13 +47,19 @@ const definitions = [
   ['ui_wait_for', 'Wait until a selector becomes present or absent. Use this after actions instead of blind sleeps.', { ...selector, state: z.enum(['present', 'absent']).default('present'), timeoutMs: z.number().int().min(0).max(12000).default(5000), pollMs: z.number().int().min(50).max(1000).default(250) }, true],
   ['screenshot', 'Capture current display as an image; Android protected windows may deny capture.', {}, true],
   ['tap', 'Tap a screen coordinate. Inspect current UI or screenshot first.', { x: coordinate, y: coordinate }, false],
+  ['double_tap', 'Double tap a point using either absolute pixels or normalized 0..1000 coordinates.', { x: coordinate.optional(), y: coordinate.optional(), nx: normalizedCoordinate.optional(), ny: normalizedCoordinate.optional() }, false],
   ['long_press', 'Long press a screen coordinate.', { x: coordinate, y: coordinate, durationMs: z.number().int().min(400).max(3000).default(800) }, false],
   ['swipe', 'Swipe between screen coordinates.', { x1: coordinate, y1: coordinate, x2: coordinate, y2: coordinate, durationMs: z.number().int().min(100).max(3000).default(400) }, false],
+  ['drag', 'Drag between two points using absolute pixels or normalized 0..1000 coordinates.', { x1: coordinate.optional(), y1: coordinate.optional(), nx1: normalizedCoordinate.optional(), ny1: normalizedCoordinate.optional(), x2: coordinate.optional(), y2: coordinate.optional(), nx2: normalizedCoordinate.optional(), ny2: normalizedCoordinate.optional(), durationMs: z.number().int().min(150).max(3000).default(600) }, false],
+  ['pinch', 'Perform a bounded two-finger pinch in or out around a point.', { x: coordinate.optional(), y: coordinate.optional(), nx: normalizedCoordinate.optional(), ny: normalizedCoordinate.optional(), direction: z.enum(['in', 'out']), amount: z.number().min(0.1).max(0.8).default(0.5), durationMs: z.number().int().min(150).max(2000).default(500) }, false],
   ['scroll', 'Scroll content in the specified direction.', { direction: z.enum(['up', 'down', 'left', 'right']) }, false],
+  ['press_key', 'Press a named navigation/input/media key. Home/back use Accessibility; other key events require explicitly-authorized Shizuku.', { key: z.enum(['home', 'back', 'enter', 'delete', 'escape', 'tab', 'dpad_up', 'dpad_down', 'dpad_left', 'dpad_right', 'dpad_center', 'volume_up', 'volume_down', 'volume_mute', 'media_play_pause', 'media_next', 'media_previous']) }, false],
   ['input_text', 'Replace text in the currently focused editable field. Focus the intended field first.', { text: z.string().max(4096) }, false],
   ['global_action', 'Perform a native Android navigation action.', { action: z.enum(['home', 'back', 'recents', 'notifications', 'quick_settings']) }, false],
   ['launch_app', 'Open an installed application by exact package name.', { packageName }, false],
   ['apps', 'List launchable applications and package names, optionally filtered by label or package.', { query: z.string().max(100).default(''), limit: z.number().int().min(1).max(500).default(100) }, true],
+  ['app_details', 'Read installed package metadata, launchability, version and requested permissions.', { packageName }, true],
+  ['open_app_settings', 'Open Android application details/settings for an installed package.', { packageName }, false],
   ['clipboard_get', 'Read the current plain-text clipboard when Android permits it.', {}, true],
   ['clipboard_set', 'Replace the current clipboard with plain text.', { text: z.string().max(4096) }, false],
   ['device_info', 'Read device, Android, battery, storage, network, volume and optional capability status.', {}, true],
@@ -134,8 +141,9 @@ export function createMcpServer(client) {
   }
   const batchMethods = new Set([
     'ui_find', 'ui_click', 'ui_set_text', 'ui_wait_for',
-    'tap', 'long_press', 'swipe', 'scroll', 'input_text', 'global_action',
+    'tap', 'double_tap', 'long_press', 'swipe', 'drag', 'pinch', 'scroll', 'press_key', 'input_text', 'global_action',
     'launch_app', 'apps', 'clipboard_get', 'clipboard_set', 'device_info',
+    'app_details', 'open_app_settings',
     'open_uri', 'share_text', 'notifications', 'notification_open',
     'notification_dismiss', 'notification_reply', 'media_sessions', 'media_action',
     'volume_get', 'volume_set', 'events', 'events_wait',

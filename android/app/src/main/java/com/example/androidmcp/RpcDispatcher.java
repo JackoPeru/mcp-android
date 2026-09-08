@@ -78,13 +78,19 @@ public final class RpcDispatcher {
             case "ui_wait_for": return uiWaitFor(params);
             case "screenshot": return screenshot(params);
             case "tap": return tap(params);
+            case "double_tap": return doubleTap(params);
             case "long_press": return longPress(params);
             case "swipe": return swipe(params);
+            case "drag": return drag(params);
+            case "pinch": return pinch(params);
             case "scroll": return scroll(params);
+            case "press_key": return pressKey(params);
             case "input_text": return inputText(params);
             case "global_action": return globalAction(params);
             case "launch_app": return launchApp(params);
             case "apps": return apps(params);
+            case "app_details": return appDetails(params);
+            case "open_app_settings": return openAppSettings(params);
             case "clipboard_get": return clipboardGet(params);
             case "clipboard_set": return clipboardSet(params);
             case "device_info": return deviceInfo(params);
@@ -332,6 +338,14 @@ public final class RpcDispatcher {
         return ok();
     }
 
+    private JSONObject doubleTap(JSONObject params) throws ApiException {
+        JsonArgs.only(params, "x", "y", "nx", "ny");
+        McpAccessibilityService service = requireActionService();
+        CoordinateResolver.PointValue point = resolvePoint(params, service, "", "");
+        service.doubleTap(point.x, point.y);
+        return ok();
+    }
+
     private JSONObject longPress(JSONObject params) throws ApiException {
         JsonArgs.only(params, "x", "y", "durationMs");
         McpAccessibilityService service = requireActionService();
@@ -363,6 +377,27 @@ public final class RpcDispatcher {
         return ok();
     }
 
+    private JSONObject drag(JSONObject params) throws ApiException {
+        JsonArgs.only(params, "x1", "y1", "nx1", "ny1", "x2", "y2", "nx2", "ny2", "durationMs");
+        McpAccessibilityService service = requireActionService();
+        CoordinateResolver.PointValue start = resolvePoint(params, service, "1", "1");
+        CoordinateResolver.PointValue end = resolvePoint(params, service, "2", "2");
+        long duration = JsonArgs.optionalLong(params, "durationMs", 600);
+        service.drag(start.x, start.y, end.x, end.y, duration);
+        return ok();
+    }
+
+    private JSONObject pinch(JSONObject params) throws ApiException {
+        JsonArgs.only(params, "x", "y", "nx", "ny", "direction", "amount", "durationMs");
+        McpAccessibilityService service = requireActionService();
+        CoordinateResolver.PointValue center = resolvePoint(params, service, "", "");
+        String direction = JsonArgs.requiredString(params, "direction", 8);
+        double amount = JsonArgs.optionalDouble(params, "amount", 0.5);
+        long duration = JsonArgs.optionalLong(params, "durationMs", 500);
+        service.pinch(center.x, center.y, direction, amount, duration);
+        return ok();
+    }
+
     private JSONObject scroll(JSONObject params) throws ApiException {
         JsonArgs.only(params, "direction");
         String direction = JsonArgs.requiredString(params, "direction", 16);
@@ -373,6 +408,45 @@ public final class RpcDispatcher {
         McpAccessibilityService service = requireActionService();
         service.scrollDirection(direction);
         return ok();
+    }
+
+    private JSONObject pressKey(JSONObject params) throws ApiException {
+        JsonArgs.only(params, "key");
+        requireUnlocked();
+        String key = JsonArgs.requiredString(params, "key", 32);
+        McpAccessibilityService service = requireAccessibility();
+        if ("back".equals(key)) {
+            service.globalAction(McpAccessibilityService.GLOBAL_ACTION_BACK);
+            return backendOk("accessibility");
+        }
+        if ("home".equals(key)) {
+            service.globalAction(McpAccessibilityService.GLOBAL_ACTION_HOME);
+            return backendOk("accessibility");
+        }
+        int keyCode;
+        switch (key) {
+            case "enter": keyCode = android.view.KeyEvent.KEYCODE_ENTER; break;
+            case "delete": keyCode = android.view.KeyEvent.KEYCODE_DEL; break;
+            case "escape": keyCode = android.view.KeyEvent.KEYCODE_ESCAPE; break;
+            case "tab": keyCode = android.view.KeyEvent.KEYCODE_TAB; break;
+            case "dpad_up": keyCode = android.view.KeyEvent.KEYCODE_DPAD_UP; break;
+            case "dpad_down": keyCode = android.view.KeyEvent.KEYCODE_DPAD_DOWN; break;
+            case "dpad_left": keyCode = android.view.KeyEvent.KEYCODE_DPAD_LEFT; break;
+            case "dpad_right": keyCode = android.view.KeyEvent.KEYCODE_DPAD_RIGHT; break;
+            case "dpad_center": keyCode = android.view.KeyEvent.KEYCODE_DPAD_CENTER; break;
+            case "volume_up": keyCode = android.view.KeyEvent.KEYCODE_VOLUME_UP; break;
+            case "volume_down": keyCode = android.view.KeyEvent.KEYCODE_VOLUME_DOWN; break;
+            case "volume_mute": keyCode = android.view.KeyEvent.KEYCODE_VOLUME_MUTE; break;
+            case "media_play_pause": keyCode = android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE; break;
+            case "media_next": keyCode = android.view.KeyEvent.KEYCODE_MEDIA_NEXT; break;
+            case "media_previous": keyCode = android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS; break;
+            default: throw new ApiException("INVALID_ARGUMENT", "Unsupported key");
+        }
+        JSONObject result = ShizukuBridge.execute(context, "input keyevent " + keyCode, "", "", 2_000);
+        if (!result.isNull("exitCode") && result.optInt("exitCode", -1) != 0) {
+            throw new ApiException("ACTION_REJECTED", "Key event failed");
+        }
+        return backendOk("shizuku");
     }
 
     private JSONObject inputText(JSONObject params) throws ApiException {
@@ -416,6 +490,19 @@ public final class RpcDispatcher {
         String query = JsonArgs.optionalStringAllowEmpty(params, "query", "", 100);
         int limit = (int) JsonArgs.optionalLong(params, "limit", 100);
         return AndroidSystemTools.apps(context, query, limit);
+    }
+
+    private JSONObject appDetails(JSONObject params) throws ApiException {
+        JsonArgs.only(params, "packageName");
+        String packageName = JsonArgs.requiredString(params, "packageName", SecurityValidators.MAX_PACKAGE_LENGTH);
+        return AndroidSystemTools.appDetails(context, packageName);
+    }
+
+    private JSONObject openAppSettings(JSONObject params) throws ApiException {
+        JsonArgs.only(params, "packageName");
+        requireUnlocked();
+        String packageName = JsonArgs.requiredString(params, "packageName", SecurityValidators.MAX_PACKAGE_LENGTH);
+        return AndroidSystemTools.openAppSettings(context, packageName);
     }
 
     private JSONObject clipboardGet(JSONObject params) throws ApiException {
@@ -710,6 +797,25 @@ public final class RpcDispatcher {
         return value;
     }
 
+    private static CoordinateResolver.PointValue resolvePoint(
+            JSONObject params, McpAccessibilityService service, String absoluteSuffix, String normalizedSuffix)
+            throws ApiException {
+        String xKey = "x" + absoluteSuffix;
+        String yKey = "y" + absoluteSuffix;
+        String nxKey = "nx" + normalizedSuffix;
+        String nyKey = "ny" + normalizedSuffix;
+        Long x = params.has(xKey) ? JsonArgs.requiredLong(params, xKey) : null;
+        Long y = params.has(yKey) ? JsonArgs.requiredLong(params, yKey) : null;
+        Integer nx = params.has(nxKey) ? Math.toIntExact(JsonArgs.requiredLong(params, nxKey)) : null;
+        Integer ny = params.has(nyKey) ? Math.toIntExact(JsonArgs.requiredLong(params, nyKey)) : null;
+        Point size = service.screenSize();
+        try {
+            return CoordinateResolver.resolve(size.x, size.y, x, y, nx, ny);
+        } catch (IllegalArgumentException | ArithmeticException e) {
+            throw new ApiException("INVALID_ARGUMENT", "Invalid coordinate mode");
+        }
+    }
+
     private static void requireBounds(McpAccessibilityService service, long x, long y) throws ApiException {
         Point size = service.screenSize();
         if (x >= size.x || y >= size.y) {
@@ -735,6 +841,16 @@ public final class RpcDispatcher {
             return result;
         } catch (JSONException e) {
             throw new ApiException("INTERNAL", "Unable to encode result");
+        }
+    }
+
+    private static JSONObject backendOk(String backend) throws ApiException {
+        JSONObject result = ok();
+        try {
+            result.put("backend", backend);
+            return result;
+        } catch (JSONException e) {
+            throw new ApiException("INTERNAL", "Unable to encode action result");
         }
     }
 }

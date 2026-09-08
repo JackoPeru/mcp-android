@@ -129,10 +129,52 @@ public final class McpAccessibilityService extends AccessibilityService {
                 .build());
     }
 
+    public boolean doubleTap(long x, long y) throws ApiException {
+        GestureDescription description = new GestureDescription.Builder()
+                .addStroke(new GestureDescription.StrokeDescription(path(x, y, x, y), 0, 70))
+                .addStroke(new GestureDescription.StrokeDescription(path(x, y, x, y), 150, 70))
+                .build();
+        return gesture(description);
+    }
+
     public boolean swipe(long x1, long y1, long x2, long y2, long durationMs) throws ApiException {
         return gesture(new GestureDescription.Builder()
                 .addStroke(new GestureDescription.StrokeDescription(path(x1, y1, x2, y2), 0, durationMs))
                 .build());
+    }
+
+    public boolean drag(long x1, long y1, long x2, long y2, long durationMs) throws ApiException {
+        if (durationMs < 150 || durationMs > 3_000) {
+            throw new ApiException("INVALID_ARGUMENT", "Invalid drag duration");
+        }
+        return swipe(x1, y1, x2, y2, durationMs);
+    }
+
+    public boolean pinch(long centerX, long centerY, String direction, double amount, long durationMs)
+            throws ApiException {
+        if ((!"in".equals(direction) && !"out".equals(direction))
+                || amount < 0.1 || amount > 0.8 || durationMs < 150 || durationMs > 2_000) {
+            throw new ApiException("INVALID_ARGUMENT", "Invalid pinch");
+        }
+        Point size = screenSize();
+        if (centerX < 0 || centerY < 0 || centerX >= size.x || centerY >= size.y) {
+            throw new ApiException("INVALID_ARGUMENT", "Pinch center outside display");
+        }
+        long horizontalRoom = Math.min(centerX, size.x - 1L - centerX);
+        long far = Math.min(Math.max(20, Math.min(size.x, size.y) / 5L), horizontalRoom);
+        if (far < 20) throw new ApiException("INVALID_ARGUMENT", "Pinch center too close to edge");
+        long near = Math.max(8, Math.round(far * (1.0 - amount)));
+        long leftStart = "in".equals(direction) ? centerX - far : centerX - near;
+        long leftEnd = "in".equals(direction) ? centerX - near : centerX - far;
+        long rightStart = "in".equals(direction) ? centerX + far : centerX + near;
+        long rightEnd = "in".equals(direction) ? centerX + near : centerX + far;
+        GestureDescription description = new GestureDescription.Builder()
+                .addStroke(new GestureDescription.StrokeDescription(
+                        path(leftStart, centerY, leftEnd, centerY), 0, durationMs))
+                .addStroke(new GestureDescription.StrokeDescription(
+                        path(rightStart, centerY, rightEnd, centerY), 0, durationMs))
+                .build();
+        return gesture(description);
     }
 
     public boolean scrollDirection(String direction) throws ApiException {

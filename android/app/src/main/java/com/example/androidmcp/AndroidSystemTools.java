@@ -5,6 +5,8 @@ import android.content.ClipboardManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.media.AudioManager;
@@ -18,6 +20,7 @@ import android.os.Build;
 import android.os.Environment;
 import android.os.PowerManager;
 import android.os.StatFs;
+import android.provider.Settings;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -62,6 +65,57 @@ public final class AndroidSystemTools {
             return result;
         } catch (JSONException e) {
             throw new ApiException("INTERNAL", "Unable to encode applications");
+        }
+    }
+
+    public static JSONObject appDetails(Context context, String packageName) throws ApiException {
+        if (!SecurityValidators.isValidPackageName(packageName)) {
+            throw new ApiException("INVALID_ARGUMENT", "Invalid package name");
+        }
+        PackageManager pm = context.getPackageManager();
+        try {
+            PackageInfo info = pm.getPackageInfo(packageName, PackageManager.GET_PERMISSIONS);
+            ApplicationInfo app = info.applicationInfo;
+            JSONObject result = new JSONObject();
+            result.put("packageName", packageName);
+            result.put("versionName", info.versionName == null ? "" : info.versionName);
+            result.put("versionCode", info.getLongVersionCode());
+            result.put("firstInstallTime", info.firstInstallTime);
+            result.put("lastUpdateTime", info.lastUpdateTime);
+            result.put("launchable", pm.getLaunchIntentForPackage(packageName) != null);
+            if (app != null) {
+                result.put("label", String.valueOf(app.loadLabel(pm)));
+                result.put("enabled", app.enabled);
+                result.put("targetSdk", app.targetSdkVersion);
+                result.put("systemApp", (app.flags & ApplicationInfo.FLAG_SYSTEM) != 0);
+                result.put("sourceDir", app.sourceDir == null ? "" : cap(app.sourceDir, 1024));
+            }
+            JSONArray permissions = new JSONArray();
+            if (info.requestedPermissions != null) {
+                for (String permission : info.requestedPermissions) {
+                    if (permission != null && permissions.length() < 200) permissions.put(permission);
+                }
+            }
+            result.put("requestedPermissions", permissions);
+            return result;
+        } catch (PackageManager.NameNotFoundException e) {
+            throw new ApiException("NOT_FOUND", "Application not found or not visible");
+        } catch (JSONException e) {
+            throw new ApiException("INTERNAL", "Unable to encode application details");
+        }
+    }
+
+    public static JSONObject openAppSettings(Context context, String packageName) throws ApiException {
+        if (!SecurityValidators.isValidPackageName(packageName)) {
+            throw new ApiException("INVALID_ARGUMENT", "Invalid package name");
+        }
+        Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.parse("package:" + packageName)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        try {
+            context.startActivity(intent);
+            return ok();
+        } catch (RuntimeException e) {
+            throw new ApiException("ACTION_REJECTED", "Application settings unavailable");
         }
     }
 

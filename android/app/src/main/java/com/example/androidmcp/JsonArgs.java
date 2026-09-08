@@ -72,6 +72,20 @@ public final class JsonArgs {
         return object.has(key) ? requiredLong(object, key) : fallback;
     }
 
+    public static double requiredDouble(JSONObject object, String key) throws ApiException {
+        Object value = value(object, key);
+        if (!(value instanceof Number)) {
+            throw new ApiException("INVALID_ARGUMENT", "Invalid parameter");
+        }
+        double result = ((Number) value).doubleValue();
+        if (!Double.isFinite(result)) throw new ApiException("INVALID_ARGUMENT", "Invalid parameter");
+        return result;
+    }
+
+    public static double optionalDouble(JSONObject object, String key, double fallback) throws ApiException {
+        return object.has(key) ? requiredDouble(object, key) : fallback;
+    }
+
     public static boolean requiredBoolean(JSONObject object, String key) throws ApiException {
         Object value = value(object, key);
         if (!(value instanceof Boolean)) {
