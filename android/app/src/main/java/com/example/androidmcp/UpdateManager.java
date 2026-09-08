@@ -7,6 +7,8 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageInstaller;
+import android.content.pm.PackageManager;
+import android.content.pm.Signature;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
@@ -154,6 +156,7 @@ public final class UpdateManager {
         EXECUTOR.execute(() -> {
             try {
                 File apk = downloadAndVerify(activity, release, callback);
+                verifyApkIdentity(activity, apk, release);
                 commitInstall(activity, apk);
                 state(callback, "Download verificato. Conferma l'installazione Android.");
             } catch (Exception e) {
@@ -295,6 +298,39 @@ public final class UpdateManager {
             if (!committed) session.abandon();
             session.close();
         }
+    }
+
+    private static void verifyApkIdentity(Context context, File apk, Release release) throws Exception {
+        PackageManager manager = context.getPackageManager();
+        PackageInfo current = manager.getPackageInfo(
+                context.getPackageName(), PackageManager.GET_SIGNING_CERTIFICATES);
+        PackageInfo candidate = manager.getPackageArchiveInfo(
+                apk.getAbsolutePath(), PackageManager.GET_SIGNING_CERTIFICATES);
+        if (candidate == null) {
+            throw new IOException("APK metadata non valida");
+        }
+        ApkIdentityValidation.requireValidCandidate(
+                context.getPackageName(),
+                release.version,
+                current.getLongVersionCode(),
+                candidate.packageName,
+                candidate.versionName,
+                candidate.getLongVersionCode(),
+                signerDigests(current),
+                signerDigests(candidate));
+    }
+
+    private static Set<String> signerDigests(PackageInfo info) throws Exception {
+        Set<String> result = new HashSet<>();
+        if (info == null || info.signingInfo == null) return result;
+        Signature[] signers = info.signingInfo.getApkContentsSigners();
+        if (signers == null) return result;
+        for (Signature signer : signers) {
+            if (signer == null) continue;
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            result.add(hex(digest.digest(signer.toByteArray())));
+        }
+        return result;
     }
 
     private static HttpURLConnection open(URL initial, Set<String> hosts) throws Exception {
