@@ -13,6 +13,11 @@ test('config only accepts explicit Tailscale IPv4, no credentials or URL redirec
   assert.throws(() => readConfig({ ANDROID_MCP_URL: 'http://100.100.1.2', ANDROID_MCP_TOKEN: 'short' }));
 });
 
+test('default client timeout leaves headroom above phone long operations', () => {
+  const client = new AndroidClient({ url: 'http://100.100.1.2:8765/', token });
+  assert.equal(client.timeoutMs, 25000);
+});
+
 test('real HTTP boundary: auth, result, error, redirect, bounded body and timeout', async (t) => {
   let redirected = false;
   const server = createServer(async (req, res) => {

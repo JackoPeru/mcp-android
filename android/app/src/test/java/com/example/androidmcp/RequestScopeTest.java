@@ -26,4 +26,11 @@ public final class RequestScopeTest {
         second.beginAction(busy);
         assertTrue(busy.get());
     }
+
+    @Test public void configurableDeadlineExpires() throws Exception {
+        RequestScope scope = new RequestScope(5);
+        Thread.sleep(20);
+        ApiException error = assertThrows(ApiException.class, scope::check);
+        assertEquals("TIMEOUT", error.code);
+    }
 }

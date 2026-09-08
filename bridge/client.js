@@ -14,7 +14,7 @@ export function readConfig(env = process.env) {
 }
 
 export class AndroidClient {
-  constructor({ url, token, timeoutMs = 15000, maxResponseBytes = 8 * 1024 * 1024 }) {
+  constructor({ url, token, timeoutMs = 25000, maxResponseBytes = 8 * 1024 * 1024 }) {
     this.url = url;
     this.token = token;
     this.timeoutMs = timeoutMs;

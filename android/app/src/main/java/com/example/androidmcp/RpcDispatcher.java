@@ -24,6 +24,7 @@ public final class RpcDispatcher {
     private final SafFileStore files;
     private static final java.util.concurrent.locks.ReentrantLock UI = new java.util.concurrent.locks.ReentrantLock();
     private static final java.util.concurrent.locks.ReentrantLock FILE = new java.util.concurrent.locks.ReentrantLock();
+    private static final java.util.concurrent.locks.ReentrantLock SHELL = new java.util.concurrent.locks.ReentrantLock();
 
     public RpcDispatcher(Context context) {
         this.context = context.getApplicationContext();
@@ -33,19 +34,30 @@ public final class RpcDispatcher {
 
     public Object dispatch(String method, JSONObject params) throws ApiException {
         RequestScope.checkCurrent();
-        boolean file = method.startsWith("file_");
-        boolean ui = !file && !method.equals("status") && !method.equals("device_info")
-                && !method.equals("events") && !method.equals("shell_status")
-                && !method.equals("privileged_status") && !method.equals("shizuku_status");
-        if (file && !FILE.tryLock()) throw new ApiException("BUSY", "Another file operation is active");
-        if (ui && !UI.tryLock()) {
-            if (file) FILE.unlock();
-            throw new ApiException("BUSY", "Another UI or system operation is active");
+        RpcPolicy.LockDomain domain = RpcPolicy.lockDomain(method);
+        java.util.concurrent.locks.ReentrantLock lock = lockFor(domain);
+        if (lock != null && !lock.tryLock()) {
+            switch (domain) {
+                case FILE:
+                    throw new ApiException("BUSY", "Another file operation is active");
+                case SHELL:
+                    throw new ApiException("BUSY", "Another shell operation is active");
+                default:
+                    throw new ApiException("BUSY", "Another UI or system operation is active");
+            }
         }
         try { return dispatchAllowed(method, params); }
         finally {
-            if (ui) UI.unlock();
-            if (file) FILE.unlock();
+            if (lock != null) lock.unlock();
+        }
+    }
+
+    private static java.util.concurrent.locks.ReentrantLock lockFor(RpcPolicy.LockDomain domain) {
+        switch (domain) {
+            case UI: return UI;
+            case FILE: return FILE;
+            case SHELL: return SHELL;
+            default: return null;
         }
     }
 

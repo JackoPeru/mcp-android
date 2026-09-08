@@ -7,10 +7,20 @@ import java.io.IOException;
 /** One request's deadline and cancellation, including provider reads and queued UI work. */
 final class RequestScope {
     static final ThreadLocal<RequestScope> CURRENT = new ThreadLocal<>();
+    static final long DEFAULT_TIMEOUT_MS = 20_000L;
     private volatile CancellationSignal signal;
-    private final long deadline = System.nanoTime() + 12_000_000_000L;
+    private final long deadline;
     private volatile boolean cancelled;
     private Closeable resource;
+
+    RequestScope() {
+        this(DEFAULT_TIMEOUT_MS);
+    }
+
+    RequestScope(long timeoutMs) {
+        if (timeoutMs <= 0) throw new IllegalArgumentException("timeoutMs must be positive");
+        deadline = System.nanoTime() + java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(timeoutMs);
+    }
 
     void check() throws ApiException {
         if (cancelled || System.nanoTime() >= deadline) throw new ApiException("TIMEOUT", "Request cancelled or expired");

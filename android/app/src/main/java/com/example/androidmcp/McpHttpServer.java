@@ -35,7 +35,8 @@ public final class McpHttpServer {
     private static final int MAX_HEADER_BYTES = 16 * 1024;
     private static final int MAX_HEADER_LINE_BYTES = 4 * 1024;
     private static final int MAX_HEADERS = 32;
-    private static final int SOCKET_TIMEOUT_MS = 12_000;
+    static final int SOCKET_IO_TIMEOUT_MS = 8_000;
+    static final int REQUEST_DEADLINE_MS = 20_000;
     private final Context context;
     private final RpcDispatcher dispatcher;
     private final AtomicBoolean running = new AtomicBoolean();
@@ -148,7 +149,7 @@ public final class McpHttpServer {
                     return;
                 }
                 client = socket.accept();
-                scope = new RequestScope();
+                scope = new RequestScope(REQUEST_DEADLINE_MS);
                 synchronized (this) {
                     if (!running.get()) { close(client); continue; }
                     clients.put(client, scope);
@@ -172,7 +173,7 @@ public final class McpHttpServer {
                 timeout = timeoutPool == null ? null : timeoutPool.schedule(() -> {
                     close(client);
                     scope.cancel();
-                }, SOCKET_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+                }, REQUEST_DEADLINE_MS, TimeUnit.MILLISECONDS);
                 ScheduledFuture<?> requestTimeout = timeout;
                 pool.execute(() -> handle(client, requestTimeout, scope));
             } catch (RejectedExecutionException e) {
@@ -187,7 +188,7 @@ public final class McpHttpServer {
         RequestScope.CURRENT.set(scope);
         try {
             Socket client = socket;
-            client.setSoTimeout(SOCKET_TIMEOUT_MS);
+            client.setSoTimeout(SOCKET_IO_TIMEOUT_MS);
             InputStream input = client.getInputStream();
             Headers headers = readHeaders(input);
             if (!"POST".equals(headers.method) || !"/rpc".equals(headers.target)) {
