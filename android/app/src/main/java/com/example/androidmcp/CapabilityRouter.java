@@ -75,10 +75,111 @@ public final class CapabilityRouter {
                     privilegedBackend(shizukuAuthorized, termuxAuthorized));
             result.put("automaticPrivilegeFallback", false);
             result.put("flowShellAllowed", false);
+            result.put("toolCategories", toolCategories());
+            result.put("requirements", new JSONObject()
+                    .put("agentLoop", new JSONObject()
+                            .put("backend", "accessibility")
+                            .put("permission", "AccessibilityService")
+                            .put("available", McpAccessibilityService.active() != null))
+                    .put("files", new JSONObject()
+                            .put("backend", "saf")
+                            .put("permission", "persisted SAF root grant")
+                            .put("available", !roots.list().isEmpty()))
+                    .put("notificationsMedia", new JSONObject()
+                            .put("backend", "android")
+                            .put("permission", "NotificationListenerService")
+                            .put("available", McpNotificationService.active() != null))
+                    .put("termuxShell", new JSONObject()
+                            .put("backend", "termux")
+                            .put("permission", "com.termux.permission.RUN_COMMAND")
+                            .put("available", termuxAuthorized))
+                    .put("shizuku", new JSONObject()
+                            .put("backend", "shizuku")
+                            .put("permission", "explicit Shizuku app grant")
+                            .put("available", shizukuAuthorized)));
+            result.put("operationClasses", operationClasses());
             return result;
         } catch (JSONException e) {
             throw new ApiException("INTERNAL", "Unable to encode capabilities");
         }
+    }
+
+    private static JSONObject toolCategories() throws JSONException {
+        return new JSONObject()
+                .put("agentLoop", names(
+                        "android_screen_context", "android_screen_diff", "android_wait_idle",
+                        "android_wait_change", "android_wait_activity", "android_scroll_to",
+                        "android_act_and_observe", "android_flow", "android_diagnostics"))
+                .put("ui", names(
+                        "android_ui_tree", "android_ui_find", "android_ui_click",
+                        "android_ui_set_text", "android_ui_wait_for", "android_screenshot",
+                        "android_tap", "android_double_tap", "android_long_press", "android_swipe",
+                        "android_drag", "android_pinch", "android_scroll", "android_press_key",
+                        "android_input_text", "android_global_action"))
+                .put("appsSystem", names(
+                        "android_status", "android_launch_app", "android_apps",
+                        "android_app_details", "android_open_app_settings", "android_device_info",
+                        "android_open_uri", "android_share_text", "android_clipboard_get",
+                        "android_clipboard_set", "android_volume_get", "android_volume_set"))
+                .put("notificationsMedia", names(
+                        "android_notifications", "android_notification_open",
+                        "android_notification_dismiss", "android_notification_reply",
+                        "android_media_sessions", "android_media_action",
+                        "android_events", "android_events_wait"))
+                .put("files", names(
+                        "android_file_roots", "android_file_list", "android_file_stat",
+                        "android_file_read", "android_file_search", "android_file_write",
+                        "android_file_mkdir", "android_file_rename", "android_file_move",
+                        "android_file_copy", "android_file_delete"))
+                .put("privileged", names(
+                        "android_shell_status", "android_shell", "android_shizuku_status",
+                        "android_shizuku_shell", "android_privileged_status", "android_capabilities",
+                        "android_force_stop_app", "android_logcat"))
+                .put("compatibility", names("android_batch"));
+    }
+
+    private static JSONObject operationClasses() throws JSONException {
+        return new JSONObject()
+                .put("readOnly", names(
+                        "android_status", "android_screen_context", "android_screen_diff",
+                        "android_wait_idle", "android_wait_change", "android_wait_activity",
+                        "android_ui_tree", "android_ui_find", "android_ui_wait_for",
+                        "android_screenshot", "android_apps", "android_app_details",
+                        "android_clipboard_get", "android_device_info", "android_notifications",
+                        "android_media_sessions", "android_volume_get", "android_events",
+                        "android_events_wait", "android_shell_status", "android_shizuku_status",
+                        "android_privileged_status", "android_capabilities", "android_logcat",
+                        "android_diagnostics", "android_file_roots", "android_file_list",
+                        "android_file_stat", "android_file_read", "android_file_search"))
+                .put("mutating", names(
+                        "android_ui_click", "android_ui_set_text", "android_tap",
+                        "android_double_tap", "android_long_press", "android_swipe", "android_drag",
+                        "android_pinch", "android_scroll", "android_scroll_to", "android_press_key",
+                        "android_input_text", "android_global_action", "android_launch_app",
+                        "android_open_app_settings", "android_clipboard_set", "android_open_uri",
+                        "android_share_text", "android_notification_open",
+                        "android_notification_dismiss", "android_notification_reply",
+                        "android_media_action", "android_volume_set", "android_shell",
+                        "android_shizuku_shell", "android_file_write", "android_file_mkdir",
+                        "android_file_rename", "android_file_move", "android_file_copy",
+                        "android_act_and_observe", "android_flow", "android_batch"))
+                .put("destructive", names(
+                        "android_force_stop_app", "android_file_delete"))
+                .put("outcomeUncertainOnTimeout", names(
+                        "android_ui_click", "android_ui_set_text", "android_tap",
+                        "android_double_tap", "android_long_press", "android_swipe", "android_drag",
+                        "android_pinch", "android_press_key", "android_input_text",
+                        "android_global_action", "android_launch_app", "android_open_uri",
+                        "android_notification_open", "android_notification_dismiss",
+                        "android_notification_reply", "android_shell", "android_shizuku_shell",
+                        "android_force_stop_app", "android_act_and_observe", "android_flow",
+                        "android_batch"));
+    }
+
+    private static JSONArray names(String... values) {
+        JSONArray array = new JSONArray();
+        for (String value : values) array.put(value);
+        return array;
     }
 
     public static JSONObject forceStop(Context context, String packageName) throws ApiException {
