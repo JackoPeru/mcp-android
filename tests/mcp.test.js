@@ -18,7 +18,7 @@ test('MCP discovers tools, validates file paths and routes without accessibility
   const [ct, st] = InMemoryTransport.createLinkedPair();
   await server.connect(st); await client.connect(ct);
   t.after(async () => { await client.close(); await server.close(); });
-  assert.equal((await client.listTools()).tools.length, 59);
+  assert.equal((await client.listTools()).tools.length, 60);
   const ui = await client.callTool({ name: 'android_ui_tree', arguments: {} });
   assert.equal(ui.isError, true);
   const roots = await client.callTool({ name: 'android_file_roots', arguments: {} });
@@ -39,6 +39,23 @@ test('MCP discovers tools, validates file paths and routes without accessibility
   assert.deepEqual(calls.at(-1), { method: 'file_read', params: { rootId: 'docs', path: 'report.pdf', offset: 0, length: 65536 } });
   const invalidTap = await client.callTool({ name: 'android_tap', arguments: { x: -1, y: 10 } });
   assert.equal(invalidTap.isError, true);
+  const beforeComposite = calls.length;
+  const unsafeComposite = await client.callTool({
+    name: 'android_act_and_observe',
+    arguments: { action: { method: 'shell', params: { script: 'id' } } },
+  });
+  assert.equal(unsafeComposite.isError, true);
+  assert.equal(calls.length, beforeComposite);
+  const composite = await client.callTool({
+    name: 'android_act_and_observe',
+    arguments: {
+      action: { method: 'ui_click', params: { text: 'Continue' } },
+      wait: { mode: 'none' },
+      observe: { mode: 'diff', screenshot: false },
+    },
+  });
+  assert.equal(composite.isError, undefined);
+  assert.equal(calls.at(-1).method, 'act_and_observe');
   const shot = await client.callTool({ name: 'android_screenshot', arguments: {} });
   assert.equal(shot.content[0].type, 'image');
   assert.equal(JSON.parse(shot.content[1].text).displayWidth, 1600);
@@ -57,13 +74,14 @@ test('actual stdio process initializes and exposes schemas without reaching a ph
   await client.connect(transport);
   t.after(() => client.close());
   const tools = (await client.listTools()).tools;
-  assert.equal(tools.length, 59);
+  assert.equal(tools.length, 60);
   assert.ok(tools.find(t => t.name === 'android_screen_context'));
   assert.ok(tools.find(t => t.name === 'android_screen_diff'));
   assert.ok(tools.find(t => t.name === 'android_wait_idle'));
   assert.ok(tools.find(t => t.name === 'android_scroll_to'));
   assert.ok(tools.find(t => t.name === 'android_double_tap'));
   assert.ok(tools.find(t => t.name === 'android_press_key'));
+  assert.ok(tools.find(t => t.name === 'android_act_and_observe'));
   assert.equal(tools.find(t => t.name === 'android_file_read').annotations.readOnlyHint, true);
   assert.equal(tools.find(t => t.name === 'android_file_write').annotations.readOnlyHint, false);
   assert.ok(tools.find(t => t.name === 'android_shell'));

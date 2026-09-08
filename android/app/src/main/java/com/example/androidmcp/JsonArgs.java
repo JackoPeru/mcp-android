@@ -98,6 +98,19 @@ public final class JsonArgs {
         return object.has(key) ? requiredBoolean(object, key) : fallback;
     }
 
+    public static JSONObject requiredObject(JSONObject object, String key) throws ApiException {
+        Object value = value(object, key);
+        if (!(value instanceof JSONObject)) {
+            throw new ApiException("INVALID_ARGUMENT", "Invalid parameter");
+        }
+        return (JSONObject) value;
+    }
+
+    public static JSONObject optionalObject(JSONObject object, String key) throws ApiException {
+        if (!object.has(key)) return new JSONObject();
+        return requiredObject(object, key);
+    }
+
     private static Object value(JSONObject object, String key) throws ApiException {
         try {
             Object value = object.get(key);

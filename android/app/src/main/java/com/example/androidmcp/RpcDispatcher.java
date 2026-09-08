@@ -71,6 +71,7 @@ public final class RpcDispatcher {
             case "wait_change": return waitChange(params);
             case "wait_activity": return waitActivity(params);
             case "scroll_to": return scrollTo(params);
+            case "act_and_observe": return actAndObserve(params);
             case "ui_tree": return uiTree(params);
             case "ui_find": return uiFind(params);
             case "ui_click": return uiClick(params);
@@ -183,25 +184,7 @@ public final class RpcDispatcher {
         JSONObject semantic = service.compactContext(includeInvisible, maxNodes);
         ScreenSnapshotStore.Snapshot snapshot = snapshots.capture(semantic);
         JSONObject response = snapshot.responseCopy();
-        if (includeScreenshot) {
-            byte[] png = service.screenshot();
-            String data = Base64.encodeToString(png, Base64.NO_WRAP);
-            if (data.length() > 8 * 1024 * 1024) {
-                throw new ApiException("RESPONSE_TOO_LARGE", "Screenshot exceeds response limit");
-            }
-            BitmapFactory.Options options = new BitmapFactory.Options();
-            options.inJustDecodeBounds = true;
-            BitmapFactory.decodeByteArray(png, 0, png.length, options);
-            try {
-                response.put("screenshot", new JSONObject()
-                        .put("mimeType", "image/png")
-                        .put("data", data)
-                        .put("width", Math.max(1, options.outWidth))
-                        .put("height", Math.max(1, options.outHeight)));
-            } catch (JSONException e) {
-                throw new ApiException("INTERNAL", "Unable to encode screen screenshot");
-            }
-        }
+        if (includeScreenshot) attachScreenshot(response, service);
         return response;
     }
 
@@ -252,6 +235,183 @@ public final class RpcDispatcher {
         long timeout = JsonArgs.optionalLong(params, "timeoutMs", 8_000);
         return new UiLoopEngine(requireAccessibility(), snapshots)
                 .scrollTo(selectorFrom(params), direction, maxSteps, timeout);
+    }
+
+    private JSONObject actAndObserve(JSONObject params) throws ApiException {
+        JsonArgs.only(params, "action", "wait", "observe");
+        requireUnlocked();
+        JSONObject action = JsonArgs.requiredObject(params, "action");
+        JsonArgs.only(action, "method", "params");
+        String method = JsonArgs.requiredString(action, "method", 64);
+        ActionRegistry.requireAllowed(method);
+        JSONObject actionParams = JsonArgs.optionalObject(action, "params");
+
+        JSONObject wait = JsonArgs.optionalObject(params, "wait");
+        validateCompositeWait(wait);
+        JSONObject observe = JsonArgs.optionalObject(params, "observe");
+        JsonArgs.only(observe, "mode", "screenshot");
+        String observeMode = JsonArgs.optionalString(observe, "mode", "diff", 16);
+        if (!observeMode.equals("diff") && !observeMode.equals("context")) {
+            throw new ApiException("INVALID_ARGUMENT", "Invalid observe mode");
+        }
+        boolean includeScreenshot = JsonArgs.optionalBoolean(observe, "screenshot", false);
+
+        McpAccessibilityService service = requireAccessibility();
+        UiLoopEngine loop = new UiLoopEngine(service, snapshots);
+        ScreenSnapshotStore.Snapshot before = loop.capture();
+        Object actionResult = null;
+        boolean outcomeUnknown = false;
+        String actionError = "";
+        try {
+            actionResult = dispatchAllowed(method, actionParams);
+        } catch (ApiException e) {
+            if (!"TIMEOUT".equals(e.code)) throw e;
+            outcomeUnknown = true;
+            actionError = e.code;
+        }
+
+        JSONObject waitResult;
+        try {
+            waitResult = performCompositeWait(wait, before, loop, service);
+            waitResult.put("ok", true);
+        } catch (ApiException e) {
+            if (!"WAIT_TIMEOUT".equals(e.code) && !"TIMEOUT".equals(e.code)) throw e;
+            waitResult = new JSONObject();
+            try {
+                waitResult.put("ok", false);
+                waitResult.put("error", e.code);
+            } catch (JSONException jsonError) {
+                throw new ApiException("INTERNAL", "Unable to encode wait result");
+            }
+        } catch (JSONException e) {
+            throw new ApiException("INTERNAL", "Unable to encode wait result");
+        }
+
+        ScreenSnapshotStore.Snapshot after = loop.capture();
+        JSONObject diff = snapshots.diff(before.id, after.id);
+        JSONObject result = new JSONObject();
+        try {
+            JSONObject actionState = new JSONObject()
+                    .put("method", method)
+                    .put("ok", actionError.isEmpty())
+                    .put("outcomeUnknown", outcomeUnknown);
+            if (!actionError.isEmpty()) actionState.put("error", actionError);
+            if (actionResult != null) actionState.put("result", actionResult);
+            result.put("action", actionState);
+            result.put("wait", waitResult);
+            result.put("beforeSnapshotId", before.id);
+            result.put("afterSnapshotId", after.id);
+            result.put("uiHash", after.uiHash);
+            result.put("changed", diff.optBoolean("changed", false));
+            if ("context".equals(observeMode)) result.put("context", after.responseCopy());
+            else result.put("diff", diff);
+        } catch (JSONException e) {
+            throw new ApiException("INTERNAL", "Unable to encode act-and-observe result");
+        }
+        if (includeScreenshot) attachScreenshot(result, service);
+        return result;
+    }
+
+    private static void validateCompositeWait(JSONObject wait) throws ApiException {
+        JsonArgs.only(wait, "mode", "timeoutMs", "quietMs", "selector", "state", "pollMs",
+                "packageName", "windowClass");
+        String mode = JsonArgs.optionalString(wait, "mode", "idle", 16);
+        if (!Set.of("idle", "change", "selector", "activity", "none").contains(mode)) {
+            throw new ApiException("INVALID_ARGUMENT", "Invalid composite wait mode");
+        }
+        long timeout = JsonArgs.optionalLong(wait, "timeoutMs", 5_000);
+        if (timeout < 0 || timeout > 12_000) throw new ApiException("INVALID_ARGUMENT", "Invalid wait timeout");
+        if ("idle".equals(mode)) {
+            long quiet = JsonArgs.optionalLong(wait, "quietMs", 300);
+            if (quiet < 100 || quiet > 1_000) throw new ApiException("INVALID_ARGUMENT", "Invalid quiet window");
+        }
+        if ("selector".equals(mode)) {
+            JSONObject selector = JsonArgs.requiredObject(wait, "selector");
+            validateSelectorSpec(selector);
+            String state = JsonArgs.optionalString(wait, "state", "present", 16);
+            if (!state.equals("present") && !state.equals("absent")) {
+                throw new ApiException("INVALID_ARGUMENT", "Invalid selector wait state");
+            }
+            long poll = JsonArgs.optionalLong(wait, "pollMs", 250);
+            if (poll < 50 || poll > 1_000) throw new ApiException("INVALID_ARGUMENT", "Invalid selector poll");
+        }
+        if ("activity".equals(mode)) {
+            String packageName = JsonArgs.requiredString(wait, "packageName", SecurityValidators.MAX_PACKAGE_LENGTH);
+            if (!SecurityValidators.isValidPackageName(packageName)) {
+                throw new ApiException("INVALID_ARGUMENT", "Invalid package name");
+            }
+            JsonArgs.optionalStringAllowEmpty(wait, "windowClass", "", 512);
+        }
+    }
+
+    private static JSONObject performCompositeWait(JSONObject wait, ScreenSnapshotStore.Snapshot before,
+                                                   UiLoopEngine loop, McpAccessibilityService service)
+            throws ApiException {
+        String mode = JsonArgs.optionalString(wait, "mode", "idle", 16);
+        long timeout = JsonArgs.optionalLong(wait, "timeoutMs", 5_000);
+        switch (mode) {
+            case "none":
+                return new JSONObject();
+            case "idle":
+                return loop.waitIdle(timeout, JsonArgs.optionalLong(wait, "quietMs", 300));
+            case "change":
+                return loop.waitChange(before.id, before.uiHash, timeout);
+            case "selector": {
+                JSONObject selector = JsonArgs.requiredObject(wait, "selector");
+                boolean present = !"absent".equals(JsonArgs.optionalString(wait, "state", "present", 16));
+                return service.waitFor(selector, present, timeout, JsonArgs.optionalLong(wait, "pollMs", 250));
+            }
+            case "activity":
+                return loop.waitActivity(
+                        JsonArgs.requiredString(wait, "packageName", SecurityValidators.MAX_PACKAGE_LENGTH),
+                        JsonArgs.optionalStringAllowEmpty(wait, "windowClass", "", 512), timeout);
+            default:
+                throw new ApiException("INVALID_ARGUMENT", "Invalid composite wait mode");
+        }
+    }
+
+    private static void validateSelectorSpec(JSONObject selector) throws ApiException {
+        JsonArgs.only(selector, "text", "textContains", "description", "descriptionContains",
+                "viewId", "className", "packageName", "clickable", "editable", "enabled",
+                "visible", "caseSensitive");
+        boolean criterion = false;
+        String[] textKeys = {"text", "textContains", "description", "descriptionContains",
+                "viewId", "className", "packageName"};
+        for (String key : textKeys) {
+            if (selector.has(key)) {
+                JsonArgs.requiredStringAllowEmpty(selector, key, SecurityValidators.MAX_SELECTOR_TEXT);
+                criterion = true;
+            }
+        }
+        String[] booleanKeys = {"clickable", "editable", "enabled", "visible"};
+        for (String key : booleanKeys) {
+            if (selector.has(key)) {
+                JsonArgs.requiredBoolean(selector, key);
+                criterion = true;
+            }
+        }
+        JsonArgs.optionalBoolean(selector, "caseSensitive", false);
+        if (!criterion) throw new ApiException("INVALID_ARGUMENT", "Selector needs at least one criterion");
+    }
+
+    private static void attachScreenshot(JSONObject target, McpAccessibilityService service) throws ApiException {
+        byte[] png = service.screenshot();
+        String data = Base64.encodeToString(png, Base64.NO_WRAP);
+        if (data.length() > 8 * 1024 * 1024) {
+            throw new ApiException("RESPONSE_TOO_LARGE", "Screenshot exceeds response limit");
+        }
+        BitmapFactory.Options options = new BitmapFactory.Options();
+        options.inJustDecodeBounds = true;
+        BitmapFactory.decodeByteArray(png, 0, png.length, options);
+        try {
+            target.put("screenshot", new JSONObject()
+                    .put("mimeType", "image/png")
+                    .put("data", data)
+                    .put("width", Math.max(1, options.outWidth))
+                    .put("height", Math.max(1, options.outHeight)));
+        } catch (JSONException e) {
+            throw new ApiException("INTERNAL", "Unable to encode screenshot");
+        }
     }
 
     private JSONObject uiTree(JSONObject params) throws ApiException {
