@@ -13,6 +13,9 @@ public final class RpcPolicy {
             case "status":
             case "screen_context":
             case "screen_diff":
+            case "wait_idle":
+            case "wait_change":
+            case "wait_activity":
             case "device_info":
             case "events":
             case "events_wait":
@@ -23,6 +26,8 @@ public final class RpcPolicy {
             case "shell":
             case "shizuku_shell":
                 return LockDomain.SHELL;
+            case "scroll_to":
+                return LockDomain.UI;
             default:
                 return LockDomain.UI;
         }

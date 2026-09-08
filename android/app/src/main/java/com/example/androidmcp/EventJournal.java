@@ -12,15 +12,22 @@ public final class EventJournal {
     private static final int MAX_EVENTS = 256;
     private static final AtomicLong NEXT = new AtomicLong(1);
     private static final ArrayDeque<Entry> EVENTS = new ArrayDeque<>();
+    private static volatile long lastEventTimeMs;
 
     private EventJournal() { }
 
     public static synchronized void add(String type, String packageName, String detail) {
         long id = NEXT.getAndIncrement();
-        EVENTS.addLast(new Entry(id, System.currentTimeMillis(), safe(type, 80),
+        long now = System.currentTimeMillis();
+        lastEventTimeMs = now;
+        EVENTS.addLast(new Entry(id, now, safe(type, 80),
                 safe(packageName, 200), safe(detail, 200)));
         while (EVENTS.size() > MAX_EVENTS) EVENTS.removeFirst();
         EventJournal.class.notifyAll();
+    }
+
+    public static long lastEventTimeMs() {
+        return lastEventTimeMs;
     }
 
     public static synchronized JSONObject since(long afterId, int limit) throws ApiException {

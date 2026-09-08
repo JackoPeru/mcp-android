@@ -67,6 +67,10 @@ public final class RpcDispatcher {
             case "status": return status(params);
             case "screen_context": return screenContext(params);
             case "screen_diff": return screenDiff(params);
+            case "wait_idle": return waitIdle(params);
+            case "wait_change": return waitChange(params);
+            case "wait_activity": return waitActivity(params);
+            case "scroll_to": return scrollTo(params);
             case "ui_tree": return uiTree(params);
             case "ui_find": return uiFind(params);
             case "ui_click": return uiClick(params);
@@ -203,6 +207,47 @@ public final class RpcDispatcher {
         return snapshots.diff(from, to);
     }
 
+    private JSONObject waitIdle(JSONObject params) throws ApiException {
+        JsonArgs.only(params, "timeoutMs", "quietMs");
+        requireUnlocked();
+        return new UiLoopEngine(requireAccessibility(), snapshots).waitIdle(
+                JsonArgs.optionalLong(params, "timeoutMs", 5_000),
+                JsonArgs.optionalLong(params, "quietMs", 300));
+    }
+
+    private JSONObject waitChange(JSONObject params) throws ApiException {
+        JsonArgs.only(params, "snapshotId", "uiHash", "timeoutMs");
+        requireUnlocked();
+        long snapshotId = JsonArgs.optionalLong(params, "snapshotId", 0);
+        String uiHash = JsonArgs.optionalStringAllowEmpty(params, "uiHash", "", 64);
+        return new UiLoopEngine(requireAccessibility(), snapshots).waitChange(
+                snapshotId, uiHash, JsonArgs.optionalLong(params, "timeoutMs", 5_000));
+    }
+
+    private JSONObject waitActivity(JSONObject params) throws ApiException {
+        JsonArgs.only(params, "packageName", "windowClass", "timeoutMs");
+        requireUnlocked();
+        String packageName = JsonArgs.requiredString(params, "packageName", SecurityValidators.MAX_PACKAGE_LENGTH);
+        if (!SecurityValidators.isValidPackageName(packageName)) {
+            throw new ApiException("INVALID_ARGUMENT", "Invalid package name");
+        }
+        String windowClass = JsonArgs.optionalStringAllowEmpty(params, "windowClass", "", 512);
+        return new UiLoopEngine(requireAccessibility(), snapshots).waitActivity(
+                packageName, windowClass, JsonArgs.optionalLong(params, "timeoutMs", 5_000));
+    }
+
+    private JSONObject scrollTo(JSONObject params) throws ApiException {
+        JsonArgs.only(params, "text", "textContains", "description", "descriptionContains",
+                "viewId", "className", "packageName", "clickable", "editable", "enabled",
+                "visible", "caseSensitive", "direction", "maxSteps", "timeoutMs");
+        requireUnlocked();
+        String direction = JsonArgs.optionalString(params, "direction", "down", 16);
+        int maxSteps = (int) JsonArgs.optionalLong(params, "maxSteps", 8);
+        long timeout = JsonArgs.optionalLong(params, "timeoutMs", 8_000);
+        return new UiLoopEngine(requireAccessibility(), snapshots)
+                .scrollTo(selectorFrom(params), direction, maxSteps, timeout);
+    }
+
     private JSONObject uiTree(JSONObject params) throws ApiException {
         JsonArgs.only(params);
         requireUnlocked();
@@ -326,18 +371,7 @@ public final class RpcDispatcher {
             throw new ApiException("INVALID_ARGUMENT", "Invalid scroll direction");
         }
         McpAccessibilityService service = requireActionService();
-        Point size = service.screenSize();
-        long centerX = size.x / 2L;
-        long centerY = size.y / 2L;
-        long x1 = centerX;
-        long y1 = centerY;
-        long x2 = centerX;
-        long y2 = centerY;
-        if ("down".equals(direction)) { y1 = (size.y * 3L) / 4L; y2 = size.y / 4L; }
-        if ("up".equals(direction)) { y1 = size.y / 4L; y2 = (size.y * 3L) / 4L; }
-        if ("right".equals(direction)) { x1 = (size.x * 3L) / 4L; x2 = size.x / 4L; }
-        if ("left".equals(direction)) { x1 = size.x / 4L; x2 = (size.x * 3L) / 4L; }
-        service.swipe(x1, y1, x2, y2, 400);
+        service.scrollDirection(direction);
         return ok();
     }
 

@@ -135,6 +135,24 @@ public final class McpAccessibilityService extends AccessibilityService {
                 .build());
     }
 
+    public boolean scrollDirection(String direction) throws ApiException {
+        Point size = screenSize();
+        long centerX = size.x / 2L;
+        long centerY = size.y / 2L;
+        long x1 = centerX;
+        long y1 = centerY;
+        long x2 = centerX;
+        long y2 = centerY;
+        switch (direction) {
+            case "down": y1 = (size.y * 3L) / 4L; y2 = size.y / 4L; break;
+            case "up": y1 = size.y / 4L; y2 = (size.y * 3L) / 4L; break;
+            case "right": x1 = (size.x * 3L) / 4L; x2 = size.x / 4L; break;
+            case "left": x1 = size.x / 4L; x2 = (size.x * 3L) / 4L; break;
+            default: throw new ApiException("INVALID_ARGUMENT", "Invalid scroll direction");
+        }
+        return swipe(x1, y1, x2, y2, 400);
+    }
+
     public boolean setFocusedText(String text) throws ApiException {
         return onMain(() -> {
             AccessibilityNodeInfo root = getRootInActiveWindow();
