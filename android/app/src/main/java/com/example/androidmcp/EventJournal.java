@@ -30,6 +30,19 @@ public final class EventJournal {
         return lastEventTimeMs;
     }
 
+    public static long latestId() {
+        return Math.max(0, NEXT.get() - 1);
+    }
+
+    public static synchronized JSONObject recent(int limit) throws ApiException {
+        if (limit < 1 || limit > 200) {
+            throw new ApiException("INVALID_ARGUMENT", "Invalid event limit");
+        }
+        long latest = latestId();
+        long after = Math.max(0, latest - limit);
+        return since(after, limit);
+    }
+
     public static synchronized JSONObject since(long afterId, int limit) throws ApiException {
         if (afterId < 0 || limit < 1 || limit > 200) {
             throw new ApiException("INVALID_ARGUMENT", "Invalid event cursor");

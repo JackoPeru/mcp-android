@@ -129,6 +129,10 @@ const definitions = [
     lines: z.number().int().min(1).max(500).default(200),
     sinceSeconds: z.number().int().min(0).max(3600).default(300),
   }, true],
+  ['diagnostics', 'Read metadata-only service, Tailscale, request, accessibility, snapshot, capability, event and execution-trace diagnostics. No action parameters or sensitive payloads are stored.', {
+    eventLimit: z.number().int().min(1).max(100).default(20),
+    traceLimit: z.number().int().min(1).max(128).default(40),
+  }, true],
   ['file_roots', 'List currently authorized storage roots. Does not require Accessibility or opening a file manager.', {}, true],
   ['file_list', 'List entries in an authorized directory, paginated. Paths are relative to rootId. Does not use UI.', { ...root, offset: z.number().int().min(0).max(1000000).default(0), limit: z.number().int().min(1).max(200).default(100) }, true],
   ['file_stat', 'Read file or directory metadata within an authorized root without UI.', root, true],

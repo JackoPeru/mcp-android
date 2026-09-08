@@ -50,6 +50,7 @@ public final class FlowRuntime {
                     JSONObject trace = stepTrace(i, type, elapsedMs(stepStarted), true, "");
                     trace.put("status", "skipped");
                     traces.put(trace);
+                    TraceJournal.add("flow_step", type, elapsedMs(stepStarted), "skipped", "");
                     continue;
                 }
 
@@ -71,9 +72,12 @@ public final class FlowRuntime {
                     trace.put("uiHash", lastSnapshot.uiHash);
                 }
                 traces.put(trace);
+                TraceJournal.add("flow_step", type, elapsedMs(stepStarted), "ok", "");
             } catch (ApiException e) {
                 ok = false;
-                traces.put(stepTrace(i, type, elapsedMs(stepStarted), false, e.code));
+                long duration = elapsedMs(stepStarted);
+                traces.put(stepTrace(i, type, duration, false, e.code));
+                TraceJournal.add("flow_step", type, duration, "error", e.code);
                 if ("TIMEOUT".equals(e.code) || "WAIT_TIMEOUT".equals(e.code)) {
                     timedOut = System.nanoTime() >= deadline;
                 }
@@ -84,13 +88,16 @@ public final class FlowRuntime {
         }
 
         try {
-            return new JSONObject()
+            JSONObject result = new JSONObject()
                     .put("ok", ok)
                     .put("timedOut", timedOut)
                     .put("elapsedMs", elapsedMs(started))
                     .put("steps", traces)
                     .put("captures", captures)
                     .put("completedSteps", traces.length());
+            TraceJournal.add("flow", "flow", elapsedMs(started),
+                    ok ? "ok" : (timedOut ? "timeout" : "error"), "");
+            return result;
         } catch (JSONException e) {
             throw new ApiException("INTERNAL", "Unable to encode flow result");
         }

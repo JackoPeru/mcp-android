@@ -116,6 +116,7 @@ public final class RpcDispatcher {
             case "capabilities": return capabilities(params);
             case "force_stop_app": return forceStopApp(params);
             case "logcat": return logcat(params);
+            case "diagnostics": return diagnostics(params);
             case "file_roots": return fileRoots(params);
             case "file_list": return fileList(params);
             case "file_stat": return fileStat(params);
@@ -242,6 +243,7 @@ public final class RpcDispatcher {
     }
 
     private JSONObject actAndObserve(JSONObject params) throws ApiException {
+        long operationStarted = System.nanoTime();
         JsonArgs.only(params, "action", "wait", "observe");
         requireUnlocked();
         JSONObject action = JsonArgs.requiredObject(params, "action");
@@ -269,7 +271,10 @@ public final class RpcDispatcher {
         try {
             actionResult = dispatchAllowed(method, actionParams);
         } catch (ApiException e) {
-            if (!"TIMEOUT".equals(e.code)) throw e;
+            if (!"TIMEOUT".equals(e.code)) {
+                TraceJournal.add("act_and_observe", method, elapsedMs(operationStarted), "error", e.code);
+                throw e;
+            }
             outcomeUnknown = true;
             actionError = e.code;
         }
@@ -279,7 +284,10 @@ public final class RpcDispatcher {
             waitResult = performCompositeWait(wait, before, loop, service);
             waitResult.put("ok", true);
         } catch (ApiException e) {
-            if (!"WAIT_TIMEOUT".equals(e.code) && !"TIMEOUT".equals(e.code)) throw e;
+            if (!"WAIT_TIMEOUT".equals(e.code) && !"TIMEOUT".equals(e.code)) {
+                TraceJournal.add("act_and_observe", method, elapsedMs(operationStarted), "error", e.code);
+                throw e;
+            }
             waitResult = new JSONObject();
             try {
                 waitResult.put("ok", false);
@@ -313,6 +321,11 @@ public final class RpcDispatcher {
             throw new ApiException("INTERNAL", "Unable to encode act-and-observe result");
         }
         if (includeScreenshot) attachScreenshot(result, service);
+        String finalStatus = outcomeUnknown ? "outcome_unknown"
+                : (waitResult.optBoolean("ok", false) ? "ok" : "wait_timeout");
+        String finalError = !actionError.isEmpty()
+                ? actionError : waitResult.optString("error", "");
+        TraceJournal.add("act_and_observe", method, elapsedMs(operationStarted), finalStatus, finalError);
         return result;
     }
 
@@ -827,6 +840,50 @@ public final class RpcDispatcher {
         return CapabilityRouter.logcat(context, packageName, tag, level, lines, sinceSeconds);
     }
 
+    private JSONObject diagnostics(JSONObject params) throws ApiException {
+        JsonArgs.only(params, "eventLimit", "traceLimit");
+        int eventLimit = (int) JsonArgs.optionalLong(params, "eventLimit", 20);
+        int traceLimit = (int) JsonArgs.optionalLong(params, "traceLimit", 40);
+        if (eventLimit < 1 || eventLimit > 100 || traceLimit < 1 || traceLimit > 128) {
+            throw new ApiException("INVALID_ARGUMENT", "Invalid diagnostics limits");
+        }
+        JSONObject result = new JSONObject();
+        try {
+            long eventTime = EventJournal.lastEventTimeMs();
+            result.put("service", new JSONObject()
+                    .put("state", McpForegroundService.state())
+                    .put("running", McpForegroundService.isRunning())
+                    .put("tailscaleAddress", McpForegroundService.address())
+                    .put("error", McpForegroundService.error())
+                    .put("activeRequests", McpForegroundService.activeRequests())
+                    .put("queuedRequests", McpForegroundService.queuedRequests())
+                    .put("requestDeadlineMs", McpHttpServer.REQUEST_DEADLINE_MS));
+            result.put("accessibility", new JSONObject()
+                    .put("connected", McpAccessibilityService.active() != null)
+                    .put("operationInFlight",
+                            McpAccessibilityService.active() != null
+                                    && McpAccessibilityService.active().operationInFlight())
+                    .put("lastEventTimeMs", eventTime)
+                    .put("lastEventAgeMs", eventTime <= 0
+                            ? JSONObject.NULL : Math.max(0, System.currentTimeMillis() - eventTime)));
+            result.put("snapshots", new JSONObject()
+                    .put("retained", snapshots.size())
+                    .put("capacity", 8)
+                    .put("latestId", snapshots.latestId()));
+            result.put("capabilities", CapabilityRouter.status(context, roots));
+            result.put("recentEvents", EventJournal.recent(eventLimit));
+            result.put("recentTraces", TraceJournal.recent(traceLimit));
+            result.put("privacy", new JSONObject()
+                    .put("tracePayloadsStored", false)
+                    .put("notificationBodiesStored", false)
+                    .put("accessibilityTextPersisted", false)
+                    .put("credentialsIncluded", false));
+            return result;
+        } catch (JSONException e) {
+            throw new ApiException("INTERNAL", "Unable to encode diagnostics");
+        }
+    }
+
     private JSONObject fileRoots(JSONObject params) throws ApiException {
         JsonArgs.only(params);
         JSONArray result = new JSONArray();
@@ -1044,5 +1101,9 @@ public final class RpcDispatcher {
         } catch (JSONException e) {
             throw new ApiException("INTERNAL", "Unable to encode action result");
         }
+    }
+
+    private static long elapsedMs(long startedNanos) {
+        return java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedNanos);
     }
 }

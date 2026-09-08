@@ -24,6 +24,7 @@ public final class RpcPolicy {
             case "shizuku_status":
             case "privileged_status":
             case "capabilities":
+            case "diagnostics":
                 return LockDomain.NONE;
             case "shell":
             case "shizuku_shell":
