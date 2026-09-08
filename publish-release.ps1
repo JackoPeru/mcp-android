@@ -31,8 +31,9 @@ try {
     gh auth status | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'GitHub CLI non autenticata.' }
 
-    gh release view $tag --repo JackoPeru/mcp-android *> $null
-    if ($LASTEXITCODE -eq 0) {
+    $releases = gh release list --repo JackoPeru/mcp-android --limit 100 --json tagName | ConvertFrom-Json
+    $exists = $null -ne ($releases | Where-Object { $_.tagName -eq $tag } | Select-Object -First 1)
+    if ($exists) {
         gh release upload $tag $apk $hash --repo JackoPeru/mcp-android --clobber
     } else {
         gh release create $tag $apk $hash --repo JackoPeru/mcp-android --title "MCP Android $tag" --generate-notes
