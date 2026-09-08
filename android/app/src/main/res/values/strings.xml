@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Android Private MCP</string>
+    <string name="accessibility_description">Consente al tuo agente associato di leggere lo schermo, toccare, scorrere e scrivere. Il controllo remoto richiede avvio esplicito nella app e può essere fermato dalla notifica. Non raccoglie eventi in background.</string>
+</resources>

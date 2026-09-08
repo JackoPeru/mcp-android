@@ -1,0 +1,40 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.example.androidmcp'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'com.example.androidmcp'
+        minSdk 30
+        targetSdk 35
+        versionCode 5
+        versionName '0.5.0'
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    buildFeatures {
+        aidl true
+    }
+
+}
+
+dependencies {
+    implementation 'androidx.annotation:annotation:1.10.0'
+    implementation 'dev.rikka.shizuku:api:13.1.5'
+    implementation 'dev.rikka.shizuku:provider:13.1.5'
+    testImplementation 'junit:junit:4.13.2'
+}

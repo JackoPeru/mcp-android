@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "android": {
+      "command": "node",
+      "args": ["C:/Users/Matteo/Desktop/Progetti/mcp android/bridge/server.js"],
+      "env": {
+        "ANDROID_MCP_URL": "http://100.100.1.2:8765",
+        "ANDROID_MCP_TOKEN": "REPLACE_WITH_THE_64_HEX_CHARACTERS_FROM_THE_PHONE"
+      }
+    }
+  }
+}

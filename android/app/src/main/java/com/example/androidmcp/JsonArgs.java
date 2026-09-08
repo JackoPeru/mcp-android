@@ -1,0 +1,98 @@
+package com.example.androidmcp;
+
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.Set;
+
+/** Strict JSON object access: no string coercion, unknown keys, or unbounded values. */
+public final class JsonArgs {
+    private JsonArgs() { }
+
+    public static void only(JSONObject object, String... allowed) throws ApiException {
+        Set<String> names = new HashSet<>();
+        for (String name : allowed) {
+            names.add(name);
+        }
+        Iterator<String> keys = object.keys();
+        while (keys.hasNext()) {
+            String key = keys.next();
+            if (!names.contains(key)) {
+                throw new ApiException("INVALID_ARGUMENT", "Unknown parameter");
+            }
+        }
+    }
+
+    public static String requiredString(JSONObject object, String key, int maxLength) throws ApiException {
+        return requiredString(object, key, maxLength, false);
+    }
+
+    public static String requiredStringAllowEmpty(JSONObject object, String key, int maxLength)
+            throws ApiException {
+        return requiredString(object, key, maxLength, true);
+    }
+
+    private static String requiredString(JSONObject object, String key, int maxLength, boolean allowEmpty)
+            throws ApiException {
+        Object value = value(object, key);
+        if (!(value instanceof String) || (!allowEmpty && ((String) value).isEmpty())
+                || ((String) value).length() > maxLength) {
+            throw new ApiException("INVALID_ARGUMENT", "Invalid parameter");
+        }
+        return (String) value;
+    }
+
+    public static String optionalString(JSONObject object, String key, String fallback, int maxLength)
+            throws ApiException {
+        if (!object.has(key)) {
+            return fallback;
+        }
+        return requiredString(object, key, maxLength);
+    }
+
+    public static String optionalStringAllowEmpty(JSONObject object, String key, String fallback, int maxLength)
+            throws ApiException {
+        if (!object.has(key)) {
+            return fallback;
+        }
+        return requiredStringAllowEmpty(object, key, maxLength);
+    }
+
+    public static long requiredLong(JSONObject object, String key) throws ApiException {
+        Object value = value(object, key);
+        if (!(value instanceof Integer) && !(value instanceof Long)) {
+            throw new ApiException("INVALID_ARGUMENT", "Invalid parameter");
+        }
+        return ((Number) value).longValue();
+    }
+
+    public static long optionalLong(JSONObject object, String key, long fallback) throws ApiException {
+        return object.has(key) ? requiredLong(object, key) : fallback;
+    }
+
+    public static boolean requiredBoolean(JSONObject object, String key) throws ApiException {
+        Object value = value(object, key);
+        if (!(value instanceof Boolean)) {
+            throw new ApiException("INVALID_ARGUMENT", "Invalid parameter");
+        }
+        return (Boolean) value;
+    }
+
+    public static boolean optionalBoolean(JSONObject object, String key, boolean fallback) throws ApiException {
+        return object.has(key) ? requiredBoolean(object, key) : fallback;
+    }
+
+    private static Object value(JSONObject object, String key) throws ApiException {
+        try {
+            Object value = object.get(key);
+            if (value == JSONObject.NULL) {
+                throw new ApiException("INVALID_ARGUMENT", "Invalid parameter");
+            }
+            return value;
+        } catch (JSONException e) {
+            throw new ApiException("INVALID_ARGUMENT", "Missing parameter");
+        }
+    }
+}
