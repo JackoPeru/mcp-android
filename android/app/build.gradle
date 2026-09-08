@@ -10,8 +10,8 @@ android {
         applicationId 'com.example.androidmcp'
         minSdk 30
         targetSdk 35
-        versionCode 7
-        versionName '0.6.1'
+        versionCode 8
+        versionName '0.7.0'
     }
 
     compileOptions {
@@ -37,5 +37,5 @@ dependencies {
     implementation 'dev.rikka.shizuku:api:13.1.5'
     implementation 'dev.rikka.shizuku:provider:13.1.5'
     testImplementation 'junit:junit:4.13.2'
-    testImplementation 'org.json:json:20240303'
+    testImplementation 'org.json:json:20250517'
 }
