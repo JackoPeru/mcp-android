@@ -1,4 +1,4 @@
-# Acceptance v0.8.0
+# Acceptance v0.8.1
 
 ## Scope verificato
 
@@ -23,15 +23,18 @@
   - risposta unicast;
   - nessun token o dato del dispositivo;
   - sorgente obbligatoriamente RFC1918 e nella stessa subnet;
+  - IP dichiarato nel payload obbligatoriamente uguale all'IP sorgente UDP;
   - rate limit 1 risposta/s per IP;
   - massimo 64 sorgenti conservate in RAM.
   - un errore di bind della discovery UDP non spegne il listener RPC LAN TCP.
+  - se la discovery UDP è down mentre il TCP LAN resta attivo, viene ritentato solo il responder discovery alle riconciliazioni successive.
 - Bridge LAN-first:
   - endpoint LAN configurato opzionale;
   - discovery LAN one-shot;
   - candidato discovery autenticato tramite RPC `status`;
   - Tailscale fallback;
   - cache LAN validata con TTL breve per evitare una RPC `status` prima di ogni operazione;
+  - errore di trasporto LAN invalida immediatamente il TTL della cache, così la chiamata successiva rivalida/fallbacka;
   - nessun replay automatico del metodo richiesto dopo un errore di trasporto con esito incerto.
 - Compatibilità legacy:
   - `ANDROID_MCP_URL=http://100.x.y.z:8765` + token continua a funzionare in modalità Tailscale-only.
@@ -97,7 +100,7 @@ Questa verifica riguarda architettura, lifecycle e test software. **Non viene di
 
 ## Boundary fisico
 
-Nessun telefono fisico è stato collegato durante l'implementazione v0.8.0. Build, test JVM e fixture Node non dimostrano ancora:
+Nessun telefono fisico è stato collegato durante l'implementazione v0.8.1. Build, test JVM e fixture Node non dimostrano ancora:
 
 - ricezione reale del broadcast UDP 8766 su una specifica ROM Android;
 - bind simultaneo reale dei listener LAN e Tailscale;
@@ -115,29 +118,32 @@ Nessun telefono fisico è stato collegato durante l'implementazione v0.8.0. Buil
 
 Questi punti richiedono collaudo end-to-end sul telefono.
 
-## Verifiche automatiche eseguite il 2026-09-08
+## Verifiche automatiche eseguite il 2026-09-09
 
 - Node: v24.19.0.
 - `npm.cmd run check`:
   - coerenza versione: OK;
-  - **15 test Node, tutti passati**.
-- Test Node v0.8 includono:
+  - **17 test Node, tutti passati**.
+- Test Node v0.8.1 includono:
   - config Tailscale legacy;
   - config dual transport;
   - validazione URL LAN/Tailscale;
   - discovery UDP one-shot;
   - assenza del token nel datagramma discovery;
   - validazione nonce;
+  - rifiuto discovery se payload IP e sorgente UDP non coincidono;
+  - rifiuto discovery se la sorgente non appartiene a una subnet interrogata;
   - timeout discovery bounded;
   - LAN-first;
   - fallback Tailscale;
   - auth failure non trasformato in fallback;
   - metodo mutante inviato una sola volta;
   - cache endpoint LAN validata;
+  - invalidazione cache LAN dopo errore di trasporto e fallback della chiamata successiva;
   - UI dual transport;
   - discovery dei 65 tool MCP tramite stdio.
 - `build-android.ps1`: assembleDebug + testDebugUnitTest + lintDebug completati.
-- Android/JVM: **68 test, 0 failure, 0 error, 0 skipped**:
+- Android/JVM: **69 test, 0 failure, 0 error, 0 skipped**:
   - ActionRegistryTest: 2
   - ApkIdentityValidationTest: 4
   - CapabilityRouterTest: 3
@@ -158,7 +164,7 @@ Questi punti richiedono collaudo end-to-end sul telefono.
   - SecurityValidatorsTest: 5
   - TraceJournalTest: 2
   - TransportDiagnosticsTest: 3
-  - TransportReconciliationTest: 4
+  - TransportReconciliationTest: 5
   - UiLoopPolicyTest: 2
   - UpdateValidationTest: 2
   - VersioningTest: 2
@@ -168,13 +174,13 @@ Questi punti richiedono collaudo end-to-end sul telefono.
 ## APK
 
 - Package: `com.example.androidmcp`.
-- versionCode: **11**.
-- versionName: **0.8.0**.
+- versionCode: **12**.
+- versionName: **0.8.1**.
 - minSdk: **30**.
 - targetSdk: **35**.
-- APK: `dist/mcp-android-0.8.0-debug.apk`.
-- Dimensione: **2,984,239 byte**.
-- SHA-256: `39876ca0699f09e7fd71713d5a6eef15f13a0ba701bc1639e3ad8c7a1be68a77`.
+- APK: `dist/mcp-android-0.8.1-debug.apk`.
+- Dimensione: **2,732,407 byte**.
+- SHA-256: `85d468d7e4c8e47cdc9073b784067376eca6b4ccf50635828f7b9258bcfe1be8`.
 - APK Signature Scheme v2: **valida**.
 - Signer: **1**.
 - Chiave: RSA 2048, Android Debug.
@@ -188,6 +194,7 @@ Questi punti richiedono collaudo end-to-end sul telefono.
 - Token rotation invalida entrambe le reti.
 - Discovery UDP non accede a `SecretStore`.
 - Discovery non trasmette token, authorization header o dati privati.
+- Una risposta discovery è accettata solo se l'IP del payload coincide con l'IP sorgente UDP e ricade in una subnet locale interrogata.
 - Una discovery valida non autentica il telefono: il bridge esegue successivamente una RPC autenticata.
 - LAN RPC:
   - bind su IPv4 RFC1918 concreto;
@@ -200,6 +207,7 @@ Questi punti richiedono collaudo end-to-end sul telefono.
 - Nessun mDNS, multicast lock, port forwarding, UPnP o Funnel.
 - Errori 401/auth non vengono reinterpretati come problemi di rete.
 - Dopo il dispatch di una RPC mutante, timeout/disconnessione restituiscono esito incerto e non causano replay automatico sull'altro trasporto.
+- Dopo un errore di trasporto LAN la cache viene invalidata senza replay della RPC fallita; la chiamata successiva può quindi passare a Tailscale.
 - PIN, biometria, keyguard e finestre protette non vengono aggirati.
 - Le altre boundary v0.7 su SAF, shell, Shizuku, flow, trace e updater restano invariate.
 
@@ -246,4 +254,4 @@ Misurare separatamente per alcune ore:
 
 ## Stato
 
-Implementazione software/build **completa per v0.8.0 dual transport**. La release è pronta per il collaudo fisico, ma LAN broadcast, routing reale e consumo batteria non vengono dichiarati verificati finché non vengono provati sul telefono.
+Implementazione software/build **completa per v0.8.1 dual transport hardening**. La release è pronta per il collaudo fisico, ma LAN broadcast, routing reale e consumo batteria non vengono dichiarati verificati finché non vengono provati sul telefono.
