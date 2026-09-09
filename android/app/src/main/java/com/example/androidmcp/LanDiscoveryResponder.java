@@ -11,26 +11,34 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/** Passive LAN-only UDP discovery responder. It contains no credential access. */
+/** Passive LAN-only UDP discovery responder. The bearer is used only as an HMAC key and never sent. */
 public final class LanDiscoveryResponder {
     public static final int PORT = 8_766;
     private final AtomicBoolean running = new AtomicBoolean();
     private final SourceRateLimiter limiter = new SourceRateLimiter();
     private volatile DatagramSocket socket;
     private volatile TransportEndpoint endpoint;
+    private volatile String token;
 
-    public synchronized void start(TransportEndpoint lan) throws IOException {
+    public synchronized void start(TransportEndpoint lan, String bearerToken) throws IOException {
         if (lan == null || !"lan".equals(lan.transport) || lan.prefixLength < 1 || lan.prefixLength > 30) {
             throw new IllegalArgumentException("Valid LAN endpoint required");
         }
-        if (running.get() && lan.equals(endpoint)) return;
+        if (!SecurityValidators.isValidToken(bearerToken)) {
+            throw new IllegalArgumentException("Valid discovery bearer required");
+        }
+        if (running.get() && lan.equals(endpoint) && bearerToken.equals(token)) return;
         stop();
         DatagramSocket candidate = new DatagramSocket(null);
         try {
             candidate.setReuseAddress(true);
             candidate.setBroadcast(true);
-            candidate.bind(new InetSocketAddress(InetAddress.getByName(lan.address), PORT));
+            // Android uses the Linux UDP stack: a socket bound only to the host's
+            // unicast address does not reliably receive subnet-broadcast datagrams.
+            // Bind the concrete subnet broadcast address, never a wildcard address.
+            candidate.bind(new InetSocketAddress(InetAddress.getByName(bindAddress(lan)), PORT));
             endpoint = lan;
+            token = bearerToken;
             socket = candidate;
             running.set(true);
             Thread thread = new Thread(this::loop, "android-mcp-lan-discovery");
@@ -39,6 +47,7 @@ public final class LanDiscoveryResponder {
         } catch (IOException | RuntimeException e) {
             candidate.close();
             endpoint = null;
+            token = null;
             socket = null;
             running.set(false);
             throw e;
@@ -50,17 +59,26 @@ public final class LanDiscoveryResponder {
         DatagramSocket current = socket;
         socket = null;
         endpoint = null;
+        token = null;
         if (current != null) current.close();
     }
 
     public boolean isRunning() { return running.get(); }
+
+    static String bindAddress(TransportEndpoint lan) {
+        if (lan == null || !"lan".equals(lan.transport)) {
+            throw new IllegalArgumentException("Valid LAN endpoint required");
+        }
+        return NetworkAddressPolicy.broadcastAddress(lan.address, lan.prefixLength);
+    }
 
     private void loop() {
         byte[] buffer = new byte[LanDiscoveryProtocol.MAX_PACKET_BYTES + 1];
         while (running.get()) {
             DatagramSocket current = socket;
             TransportEndpoint lan = endpoint;
-            if (current == null || lan == null) return;
+            String bearerToken = token;
+            if (current == null || lan == null || bearerToken == null) return;
             DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
             try {
                 current.receive(packet);
@@ -79,7 +97,7 @@ public final class LanDiscoveryResponder {
                 LanDiscoveryProtocol.Request request;
                 try { request = LanDiscoveryProtocol.parseRequest(requestBytes); }
                 catch (IllegalArgumentException e) { continue; }
-                byte[] response = LanDiscoveryProtocol.encodeResponse(request, lan);
+                byte[] response = LanDiscoveryProtocol.encodeResponse(request, lan, bearerToken);
                 DatagramPacket reply = new DatagramPacket(response, response.length, sourceAddress, packet.getPort());
                 current.send(reply);
             } catch (SocketException e) {

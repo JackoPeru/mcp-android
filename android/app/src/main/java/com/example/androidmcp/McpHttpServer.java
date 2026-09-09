@@ -88,13 +88,7 @@ public final class McpHttpServer {
         try {
             socket.setReuseAddress(true);
             socket.bind(new InetSocketAddress(bindAddress, bindPort), 32);
-            pool = new ThreadPoolExecutor(
-                    0, 4, 30L, TimeUnit.SECONDS, new ArrayBlockingQueue<>(16),
-                    runnable -> {
-                        Thread thread = new Thread(runnable, "android-mcp-rpc");
-                        thread.setDaemon(true);
-                        return thread;
-                    });
+            pool = createRpcExecutor();
             ScheduledThreadPoolExecutor scheduler = new ScheduledThreadPoolExecutor(1, runnable -> {
                 Thread thread = new Thread(runnable, "android-mcp-timeout");
                 thread.setDaemon(true);
@@ -183,6 +177,20 @@ public final class McpHttpServer {
         scheduler.setRemoveOnCancelPolicy(true);
         scheduler.setKeepAliveTime(30L, TimeUnit.SECONDS);
         scheduler.allowCoreThreadTimeOut(true);
+    }
+
+    static ThreadPoolExecutor createRpcExecutor() {
+        ThreadPoolExecutor pool = new ThreadPoolExecutor(
+                4, 4, 30L, TimeUnit.SECONDS, new ArrayBlockingQueue<>(16),
+                runnable -> {
+                    Thread thread = new Thread(runnable, "android-mcp-rpc");
+                    thread.setDaemon(true);
+                    return thread;
+                });
+        // Core workers serve the first four concurrent requests immediately, then
+        // disappear after the keep-alive period so idle still has zero RPC workers.
+        pool.allowCoreThreadTimeOut(true);
+        return pool;
     }
 
     private void acceptLoop() {

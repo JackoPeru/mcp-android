@@ -136,3 +136,76 @@ test('LAN transport failure invalidates recent cache so the next RPC falls back 
   assert.equal(dispatched.filter(host => host === '100.100.1.2').length, 1);
   assert.ok(probes.filter(url => url.includes('192.168.1.84')).length >= 2);
 });
+
+test('LAN miss is negatively cached briefly and configured LAN is retried later', async () => {
+  let now = 1_000;
+  let probes = 0;
+  let discoveries = 0;
+  let lanReachable = false;
+  const resolver = new TransportResolver({
+    preference: 'auto',
+    lanUrl: 'http://192.168.1.84:8765/',
+    tailscaleUrl: 'http://100.100.1.2:8765/',
+    discovery: true,
+  }, {
+    discover: async () => { discoveries++; return []; },
+    probe: async () => {
+      probes++;
+      if (!lanReachable) throw Object.assign(new Error('unreachable'), { kind: 'unreachable' });
+      return true;
+    },
+    now: () => now,
+    lanRetryMs: 5_000,
+  });
+
+  assert.equal((await resolver.resolve()).transport, 'tailscale');
+  assert.equal(probes, 1);
+  assert.equal(discoveries, 1);
+  now += 1_000;
+  assert.equal((await resolver.resolve()).transport, 'tailscale');
+  assert.equal(probes, 1);
+  assert.equal(discoveries, 1);
+  lanReachable = true;
+  now += 5_000;
+  assert.equal((await resolver.resolve()).transport, 'lan');
+  assert.equal(probes, 2);
+});
+
+test('failed real LAN RPC invalidates it for the next request without replaying current action', async () => {
+  let now = 10_000;
+  const resolver = new TransportResolver({
+    preference: 'auto',
+    lanUrl: 'http://192.168.1.84:8765/',
+    tailscaleUrl: 'http://100.100.1.2:8765/',
+    discovery: false,
+  }, {
+    discover: async () => [],
+    probe: async () => true,
+    now: () => now,
+    lanRetryMs: 5_000,
+  });
+  assert.equal((await resolver.resolve()).transport, 'lan');
+  resolver.noteFailure('http://192.168.1.84:8765/', 'lan', { kind: 'outcome_unknown' });
+  assert.equal((await resolver.resolve()).transport, 'tailscale');
+});
+
+test('AndroidClient uses a short dedicated timeout for LAN reachability probes', async () => {
+  const calls = [];
+  const client = new AndroidClient({
+    token: 'a'.repeat(64),
+    lanUrl: 'http://192.168.1.84:8765/',
+    tailscaleUrl: 'http://100.100.1.2:8765/',
+    discovery: false,
+    timeoutMs: 30_000,
+    probeTimeoutMs: 750,
+  });
+  client.callOnce = async (...args) => {
+    calls.push(args);
+    return {};
+  };
+  await client.call('status', {});
+  assert.equal(calls[0][1], 'status');
+  assert.equal(calls[0][3], true);
+  assert.equal(calls[0][4], 750);
+  assert.equal(calls[1][3], false);
+});

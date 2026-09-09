@@ -21,4 +21,9 @@ public final class LanDiscoveryRateLimitTest {
         }
         assertEquals(64, limiter.size());
     }
+
+    @Test public void responderBindsSubnetBroadcastSoLinuxAndroidCanReceiveBroadcastPackets() {
+        TransportEndpoint lan = new TransportEndpoint("lan", "192.168.1.84", 8765, 24);
+        assertEquals("192.168.1.255", LanDiscoveryResponder.bindAddress(lan));
+    }
 }

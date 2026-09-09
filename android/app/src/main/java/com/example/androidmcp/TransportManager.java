@@ -198,7 +198,7 @@ public final class TransportManager {
             catch (Exception e) { error = error.isEmpty() ? "Tailscale listener unavailable" : error + "; Tailscale listener unavailable"; }
         }
         if (TransportReconciliation.shouldStartLanDiscovery(lanEndpoint, discoveryResponder.isRunning())) {
-            try { discoveryResponder.start(lanEndpoint); }
+            try { discoveryResponder.start(lanEndpoint, SecretStore.current(context)); }
             catch (Exception e) {
                 error = error.isEmpty() ? "LAN discovery unavailable" : error + "; LAN discovery unavailable";
             }

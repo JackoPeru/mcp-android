@@ -26,17 +26,19 @@ export function readConfig(env = process.env) {
 
 export class AndroidClient {
   constructor({ url = null, token, preference = 'auto', lanUrl = null, tailscaleUrl = null, discovery = true,
-                timeoutMs = 30000, maxResponseBytes = 8 * 1024 * 1024, resolver = null, fetchImpl = fetch }) {
+                timeoutMs = 30000, probeTimeoutMs = 1000, maxResponseBytes = 8 * 1024 * 1024,
+                resolver = null, fetchImpl = fetch }) {
     this.url = url;
     this.token = token;
     this.timeoutMs = timeoutMs;
+    this.probeTimeoutMs = probeTimeoutMs;
     this.maxResponseBytes = maxResponseBytes;
     this.fetch = fetchImpl;
     this.resolver = resolver;
     if (!this.url && !this.resolver) {
       this.resolver = new TransportResolver({ preference, lanUrl, tailscaleUrl, discovery }, {
-        discover: () => discoverLan(),
-        probe: endpoint => this.callOnce(endpoint, 'status', {}, true),
+        discover: () => discoverLan({ token: this.token }),
+        probe: endpoint => this.callOnce(endpoint, 'status', {}, true, this.probeTimeoutMs),
       });
     }
   }
@@ -48,16 +50,16 @@ export class AndroidClient {
       this.resolver?.noteSuccess?.(endpoint.url, endpoint.transport);
       return result;
     } catch (error) {
-      this.resolver?.noteFailure?.(endpoint.url, endpoint.transport, error?.kind);
+      this.resolver?.noteFailure?.(endpoint.url, endpoint.transport, error);
       throw error;
     }
   }
 
-  async callOnce(url, method, params = {}, probe = false) {
+  async callOnce(url, method, params = {}, probe = false, timeoutMs = this.timeoutMs) {
     let response;
     try {
       response = await this.fetch(new URL('rpc', url), {
-        method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(this.timeoutMs),
+        method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(timeoutMs),
         headers: { authorization: `Bearer ${this.token}`, 'content-type': 'application/json' },
         body: JSON.stringify({ method, params }),
       });
