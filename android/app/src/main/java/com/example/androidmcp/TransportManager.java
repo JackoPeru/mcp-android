@@ -67,7 +67,9 @@ public final class TransportManager {
             }
             try {
                 connectivity.registerNetworkCallback(new NetworkRequest.Builder()
-                        .addTransportType(NetworkCapabilities.TRANSPORT_VPN).build(), vpnCallback, handler);
+                        .addTransportType(NetworkCapabilities.TRANSPORT_VPN)
+                        .removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+                        .build(), vpnCallback, handler);
             } catch (RuntimeException e) {
                 vpnCallback = null;
             }
@@ -198,7 +200,7 @@ public final class TransportManager {
             catch (Exception e) { error = error.isEmpty() ? "Tailscale listener unavailable" : error + "; Tailscale listener unavailable"; }
         }
         if (TransportReconciliation.shouldStartLanDiscovery(lanEndpoint, discoveryResponder.isRunning())) {
-            try { discoveryResponder.start(lanEndpoint); }
+            try { discoveryResponder.start(lanEndpoint, SecretStore.current(context)); }
             catch (Exception e) {
                 error = error.isEmpty() ? "LAN discovery unavailable" : error + "; LAN discovery unavailable";
             }

@@ -5,8 +5,12 @@ import org.json.JSONObject;
 import org.json.JSONTokener;
 
 import java.nio.charset.StandardCharsets;
+import java.security.GeneralSecurityException;
 
-/** Strict, credential-free LAN discovery wire format. */
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
+
+/** Strict LAN discovery wire format with proof-of-secret, but never the secret itself. */
 public final class LanDiscoveryProtocol {
     static final int MAX_PACKET_BYTES = 512;
     static final String PROTOCOL = "mcp-android-discovery";
@@ -52,7 +56,7 @@ public final class LanDiscoveryProtocol {
         }
     }
 
-    public static byte[] encodeResponse(Request request, TransportEndpoint lan) {
+    public static byte[] encodeResponse(Request request, TransportEndpoint lan, String token) {
         if (request == null || lan == null || !"lan".equals(lan.transport)) {
             throw new IllegalArgumentException("LAN response required");
         }
@@ -64,11 +68,50 @@ public final class LanDiscoveryProtocol {
             object.put("address", lan.address);
             object.put("port", lan.port);
             object.put("transport", "lan");
+            object.put("proof", discoveryProof(token, request, lan));
             byte[] bytes = object.toString().getBytes(StandardCharsets.UTF_8);
             if (bytes.length > MAX_PACKET_BYTES) throw new IllegalArgumentException("Discovery response too large");
             return bytes;
         } catch (JSONException e) {
             throw new IllegalArgumentException("Unable to encode discovery response", e);
         }
+    }
+
+    static String discoveryProof(String token, Request request, TransportEndpoint lan) {
+        if (!SecurityValidators.isValidToken(token)
+                || request == null || lan == null || !"lan".equals(lan.transport)) {
+            throw new IllegalArgumentException("Valid discovery proof inputs required");
+        }
+        String material = PROTOCOL + "\n" + VERSION + "\n" + request.nonce + "\n"
+                + lan.address + "\n" + lan.port + "\nlan";
+        try {
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec(hexBytes(token), "HmacSHA256"));
+            return hex(mac.doFinal(material.getBytes(StandardCharsets.UTF_8)));
+        } catch (GeneralSecurityException e) {
+            throw new IllegalStateException("Unable to create discovery proof", e);
+        }
+    }
+
+    private static byte[] hexBytes(String value) {
+        byte[] bytes = new byte[value.length() / 2];
+        for (int i = 0; i < bytes.length; i++) {
+            int high = Character.digit(value.charAt(i * 2), 16);
+            int low = Character.digit(value.charAt(i * 2 + 1), 16);
+            if (high < 0 || low < 0) throw new IllegalArgumentException("Invalid token");
+            bytes[i] = (byte) ((high << 4) | low);
+        }
+        return bytes;
+    }
+
+    private static String hex(byte[] bytes) {
+        char[] out = new char[bytes.length * 2];
+        final char[] digits = "0123456789abcdef".toCharArray();
+        for (int i = 0; i < bytes.length; i++) {
+            int value = bytes[i] & 0xff;
+            out[i * 2] = digits[value >>> 4];
+            out[i * 2 + 1] = digits[value & 0x0f];
+        }
+        return new String(out);
     }
 }

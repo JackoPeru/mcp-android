@@ -42,4 +42,11 @@ public final class TransportDiagnosticsTest {
         JSONObject status = TransportManager.encodeStatus(null, null, false);
         assertEquals("none", status.getString("preferredTransport"));
     }
+
+    @Test public void missingDiscoveryIsRetriedWhileLanListenerRemainsAvailable() {
+        TransportEndpoint lan = lan("192.168.1.84", 24);
+        assertTrue(TransportReconciliation.shouldStartLanDiscovery(lan, false));
+        assertFalse(TransportReconciliation.shouldStartLanDiscovery(lan, true));
+        assertFalse(TransportReconciliation.shouldStartLanDiscovery(null, false));
+    }
 }

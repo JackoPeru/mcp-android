@@ -35,18 +35,26 @@ export function validateTailscaleOrigin(value) {
 }
 
 export class TransportResolver {
-  constructor(config, { discover, probe, now = () => Date.now(), validationTtlMs = 5_000 }) {
+  constructor(config, {
+    discover,
+    probe,
+    now = () => Date.now(),
+    validationTtlMs = 5_000,
+    lanRetryMs = 5_000,
+  }) {
     this.preference = config.preference ?? 'auto';
     this.configuredLanUrl = config.lanUrl ?? null;
     this.cachedLanUrl = this.configuredLanUrl;
     this.cachedLanSource = this.configuredLanUrl ? 'configured' : null;
     this.validatedLanAt = 0;
+    this.lanRetryAfter = 0;
     this.tailscaleUrl = config.tailscaleUrl ?? null;
     this.discovery = config.discovery !== false;
     this.discover = discover;
     this.probe = probe;
     this.now = now;
     this.validationTtlMs = validationTtlMs;
+    this.lanRetryMs = lanRetryMs;
   }
 
   async resolve() {
@@ -64,13 +72,21 @@ export class TransportResolver {
   }
 
   async resolveLan() {
+    const now = this.now();
+    if (!this.cachedLanUrl && this.configuredLanUrl && now >= this.lanRetryAfter) {
+      this.cachedLanUrl = this.configuredLanUrl;
+      this.cachedLanSource = 'configured';
+    }
+    if (!this.cachedLanUrl && now < this.lanRetryAfter) return null;
+
     if (this.cachedLanUrl) {
-      if (this.validatedLanAt > 0 && this.now() - this.validatedLanAt <= this.validationTtlMs) {
+      if (this.validatedLanAt > 0 && now - this.validatedLanAt <= this.validationTtlMs) {
         return this.cachedLanUrl;
       }
       try {
         await this.probe(this.cachedLanUrl);
         this.validatedLanAt = this.now();
+        this.lanRetryAfter = 0;
         return this.cachedLanUrl;
       } catch (error) {
         if (this.cachedLanSource === 'configured' && error?.kind !== 'unreachable') throw error;
@@ -80,7 +96,10 @@ export class TransportResolver {
       }
     }
 
-    if (!this.discovery) return null;
+    if (!this.discovery) {
+      this.lanRetryAfter = this.now() + this.lanRetryMs;
+      return null;
+    }
     const candidates = await this.discover();
     for (const candidate of candidates) {
       let url;
@@ -91,11 +110,13 @@ export class TransportResolver {
         this.cachedLanUrl = url;
         this.cachedLanSource = 'discovered';
         this.validatedLanAt = this.now();
+        this.lanRetryAfter = 0;
         return url;
       } catch {
-        // Discovery is unauthenticated; reject spoofed/unreachable candidates and continue.
+        // HMAC authenticates discovery; the RPC probe still confirms reachability/channel setup.
       }
     }
+    this.lanRetryAfter = this.now() + this.lanRetryMs;
     return null;
   }
 
@@ -107,13 +128,19 @@ export class TransportResolver {
     this.cachedLanUrl = validated;
     if (!this.cachedLanSource) this.cachedLanSource = 'discovered';
     this.validatedLanAt = this.now();
+    this.lanRetryAfter = 0;
   }
 
-  noteFailure(url, transport, kind) {
-    if (transport !== 'lan' || !['unreachable', 'outcome_unknown'].includes(kind)) return;
+  noteFailure(url, transport, error = null) {
+    if (transport !== 'lan' || !['unreachable', 'outcome_unknown'].includes(error?.kind ?? 'outcome_unknown')) return;
     let validated;
     try { validated = validateLanOrigin(url); }
     catch { return; }
-    if (this.cachedLanUrl === validated) this.validatedLanAt = 0;
+    if (this.cachedLanUrl && this.cachedLanUrl !== validated) return;
+    this.cachedLanUrl = null;
+    this.cachedLanSource = null;
+    this.validatedLanAt = 0;
+    this.lanRetryAfter = this.now() + this.lanRetryMs;
   }
+
 }

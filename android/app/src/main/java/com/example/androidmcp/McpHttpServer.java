@@ -36,24 +36,30 @@ public final class McpHttpServer {
     private static final int MAX_HEADER_BYTES = 16 * 1024;
     private static final int MAX_HEADER_LINE_BYTES = 4 * 1024;
     private static final int MAX_HEADERS = 32;
+    private static final int MAX_LAN_WIRE_REQUEST_BYTES = 128 * 1024;
+    private static final int MAX_LAN_WIRE_RESPONSE_BYTES = 12 * 1024 * 1024;
     static final int SOCKET_IO_TIMEOUT_MS = 8_000;
     static final int REQUEST_DEADLINE_MS = 25_000;
     private final Context context;
     private final RpcDispatcher dispatcher;
     private final TransportEndpoint configuredEndpoint;
     private final RpcEndpointServer.ClientPolicy clientPolicy;
+    private final boolean secureLan;
     private final AtomicBoolean running = new AtomicBoolean();
     private final Map<Socket, RequestScope> clients = new ConcurrentHashMap<>();
     private volatile ServerSocket serverSocket;
     private volatile ThreadPoolExecutor executor;
     private volatile ScheduledExecutorService timeouts;
     private volatile Inet4Address address;
+    private volatile String lanSession;
+    private volatile LanSecureChannel.ReplayGuard lanReplayGuard;
 
     public McpHttpServer(Context context) {
         this.context = context.getApplicationContext();
         dispatcher = new RpcDispatcher(this.context);
         configuredEndpoint = null;
         clientPolicy = RpcEndpointServer.tailscaleClientPolicy();
+        secureLan = false;
     }
 
     McpHttpServer(Context context, RpcDispatcher dispatcher, TransportEndpoint endpoint,
@@ -65,6 +71,7 @@ public final class McpHttpServer {
         this.dispatcher = dispatcher;
         this.configuredEndpoint = endpoint;
         this.clientPolicy = clientPolicy;
+        this.secureLan = secureLanEndpoint(endpoint);
     }
 
     public synchronized void start() throws IOException {
@@ -88,13 +95,7 @@ public final class McpHttpServer {
         try {
             socket.setReuseAddress(true);
             socket.bind(new InetSocketAddress(bindAddress, bindPort), 32);
-            pool = new ThreadPoolExecutor(
-                    0, 4, 30L, TimeUnit.SECONDS, new ArrayBlockingQueue<>(16),
-                    runnable -> {
-                        Thread thread = new Thread(runnable, "android-mcp-rpc");
-                        thread.setDaemon(true);
-                        return thread;
-                    });
+            pool = createRpcExecutor();
             ScheduledThreadPoolExecutor scheduler = new ScheduledThreadPoolExecutor(1, runnable -> {
                 Thread thread = new Thread(runnable, "android-mcp-timeout");
                 thread.setDaemon(true);
@@ -102,6 +103,10 @@ public final class McpHttpServer {
             });
             configureTimeoutScheduler(scheduler);
             timeoutPool = scheduler;
+            if (secureLan) {
+                lanSession = LanSecureChannel.newSessionId();
+                lanReplayGuard = new LanSecureChannel.ReplayGuard();
+            }
             address = bindAddress;
             serverSocket = socket;
             executor = pool;
@@ -154,6 +159,8 @@ public final class McpHttpServer {
             timeoutPool.shutdownNow();
         }
         address = null;
+        lanSession = null;
+        lanReplayGuard = null;
     }
 
     public boolean isRunning() {
@@ -179,10 +186,32 @@ public final class McpHttpServer {
         return REQUEST_DEADLINE_MS;
     }
 
+    static boolean secureLanEndpoint(TransportEndpoint endpoint) {
+        return endpoint != null && "lan".equals(endpoint.transport);
+    }
+
+    static int maxWireRequestBytes(TransportEndpoint endpoint) {
+        return secureLanEndpoint(endpoint) ? MAX_LAN_WIRE_REQUEST_BYTES : SecurityValidators.MAX_JSON_BYTES;
+    }
+
     static void configureTimeoutScheduler(ScheduledThreadPoolExecutor scheduler) {
         scheduler.setRemoveOnCancelPolicy(true);
         scheduler.setKeepAliveTime(30L, TimeUnit.SECONDS);
         scheduler.allowCoreThreadTimeOut(true);
+    }
+
+    static ThreadPoolExecutor createRpcExecutor() {
+        ThreadPoolExecutor pool = new ThreadPoolExecutor(
+                4, 4, 30L, TimeUnit.SECONDS, new ArrayBlockingQueue<>(16),
+                runnable -> {
+                    Thread thread = new Thread(runnable, "android-mcp-rpc");
+                    thread.setDaemon(true);
+                    return thread;
+                });
+        // Core workers serve the first four concurrent requests immediately, then
+        // disappear after the keep-alive period so idle still has zero RPC workers.
+        pool.allowCoreThreadTimeOut(true);
+        return pool;
     }
 
     private void acceptLoop() {
@@ -241,7 +270,11 @@ public final class McpHttpServer {
             Socket client = socket;
             client.setSoTimeout(SOCKET_IO_TIMEOUT_MS);
             InputStream input = client.getInputStream();
-            Headers headers = readHeaders(input);
+            Headers headers = readHeaders(input, secureLan ? MAX_LAN_WIRE_REQUEST_BYTES : SecurityValidators.MAX_JSON_BYTES);
+            if (secureLan) {
+                handleSecureLan(client, input, headers, scope);
+                return;
+            }
             if (!"POST".equals(headers.method) || !"/rpc".equals(headers.target)) {
                 sendError(client, 404, "NOT_FOUND", "RPC endpoint not found");
                 return;
@@ -303,6 +336,95 @@ public final class McpHttpServer {
         }
     }
 
+    private void handleSecureLan(Socket client, InputStream input, Headers headers, RequestScope scope)
+            throws IOException {
+        if (!"POST".equals(headers.method)) {
+            sendError(client, 404, "NOT_FOUND", "LAN endpoint not found");
+            return;
+        }
+        if ("/hello".equals(headers.target)) {
+            if (!"application/json".equals(headers.contentType) || headers.authorization != null) {
+                sendError(client, 400, "INVALID_REQUEST", "Invalid LAN hello");
+                return;
+            }
+            try {
+                JSONObject request = parseObject(readBody(input, headers.contentLength));
+                JsonArgs.only(request, "nonce");
+                String nonce = JsonArgs.requiredString(request, "nonce", 64);
+                String session = lanSession;
+                if (session == null || !running.get()) {
+                    sendError(client, 503, "SERVICE_STOPPED", "Remote service is stopped");
+                    return;
+                }
+                sendJson(client, 200, LanSecureChannel.helloResponse(SecretStore.current(context), nonce, session));
+            } catch (JSONException | ApiException | IllegalArgumentException | HttpException e) {
+                sendError(client, 400, "INVALID_REQUEST", "Invalid LAN hello");
+            }
+            return;
+        }
+        if (!"/rpc".equals(headers.target)) {
+            sendError(client, 404, "NOT_FOUND", "LAN endpoint not found");
+            return;
+        }
+        if (!LanSecureChannel.MEDIA_TYPE.equals(headers.contentType) || headers.authorization != null) {
+            sendError(client, 415, "UNSUPPORTED_MEDIA_TYPE", "Encrypted LAN content type required");
+            return;
+        }
+
+        String session = lanSession;
+        LanSecureChannel.ReplayGuard replayGuard = lanReplayGuard;
+        if (session == null || replayGuard == null || !running.get()) {
+            sendError(client, 503, "SERVICE_STOPPED", "Remote service is stopped");
+            return;
+        }
+
+        String token = SecretStore.current(context);
+        JSONObject request;
+        try {
+            JSONObject envelope = parseObject(readBody(input, headers.contentLength));
+            request = LanSecureChannel.decryptRequest(token, session, envelope, replayGuard);
+        } catch (JSONException | ApiException | IllegalArgumentException | HttpException e) {
+            sendError(client, 401, "AUTH_INVALID", "Secure LAN authentication required");
+            return;
+        }
+        if (!constantTimeToken(token, SecretStore.current(context))) {
+            sendError(client, 401, "AUTH_INVALID", "Secure LAN authentication required");
+            return;
+        }
+
+        JSONObject response = new JSONObject();
+        int status = 200;
+        try {
+            JsonArgs.only(request, "method", "params");
+            String method = JsonArgs.requiredString(request, "method", 64);
+            JSONObject params = request.has("params") ? request.optJSONObject("params") : new JSONObject();
+            if (params == null) throw new ApiException("INVALID_ARGUMENT", "params must be an object");
+            scope.check();
+            if (!running.get() || client.isClosed()) {
+                throw new ApiException("SERVICE_STOPPED", "Remote service is stopped");
+            }
+            Object result = dispatcher.dispatch(method, params);
+            scope.check();
+            response.put("result", result == null ? JSONObject.NULL : result);
+        } catch (ApiException e) {
+            status = httpStatus(e.code);
+            try {
+                response.put("error", new JSONObject().put("code", e.code).put("message", e.getMessage()));
+            } catch (JSONException ignored) { }
+        } catch (JSONException e) {
+            status = 400;
+            try {
+                response.put("error", new JSONObject().put("code", "INVALID_JSON").put("message", "Invalid JSON request"));
+            } catch (JSONException ignored) { }
+        } catch (RuntimeException e) {
+            status = 500;
+            try {
+                response.put("error", new JSONObject().put("code", "INTERNAL").put("message", "Internal server error"));
+            } catch (JSONException ignored) { }
+        }
+        sendLanJson(client, status, response, token, session);
+    }
+
     static int httpStatus(String code) {
         if ("INTERNAL".equals(code) || "RESPONSE_TOO_LARGE".equals(code)) return 500;
         if ("TIMEOUT".equals(code)) return 504;
@@ -320,6 +442,10 @@ public final class McpHttpServer {
     }
 
     static Headers readHeaders(InputStream input) throws IOException, HttpException {
+        return readHeaders(input, SecurityValidators.MAX_JSON_BYTES);
+    }
+
+    static Headers readHeaders(InputStream input, int maxBodyBytes) throws IOException, HttpException {
         String requestLine = readLine(input);
         if (requestLine == null) {
             throw new HttpException(400, "INVALID_REQUEST", "Request line required");
@@ -345,7 +471,7 @@ public final class McpHttpServer {
                     throw new HttpException(411, "LENGTH_REQUIRED", "Content-Length required");
                 }
                 long contentLength = parseLength(length);
-                if (contentLength > SecurityValidators.MAX_JSON_BYTES) {
+                if (contentLength > maxBodyBytes) {
                     throw new HttpException(413, "BODY_TOO_LARGE", "Request body too large");
                 }
                 return new Headers(parts[0], parts[1], headers.get("authorization"),
@@ -458,6 +584,12 @@ public final class McpHttpServer {
         return MessageDigest.isEqual(actual, expected);
     }
 
+    static boolean constantTimeToken(String actualToken, String expectedToken) {
+        if (actualToken == null || expectedToken == null) return false;
+        return MessageDigest.isEqual(actualToken.getBytes(StandardCharsets.US_ASCII),
+                expectedToken.getBytes(StandardCharsets.US_ASCII));
+    }
+
     private static void sendError(Socket socket, int status, String code, String message) {
         JSONObject body = new JSONObject();
         try {
@@ -468,9 +600,27 @@ public final class McpHttpServer {
     }
 
     private static void sendJson(Socket socket, int status, JSONObject body) {
+        sendJson(socket, status, body, SecurityValidators.MAX_RESPONSE_BYTES);
+    }
+
+    private static void sendLanJson(Socket socket, int status, JSONObject body, String token, String session) {
+        JSONObject plaintext = body;
+        if (body.toString().getBytes(StandardCharsets.UTF_8).length > SecurityValidators.MAX_RESPONSE_BYTES) {
+            status = 500;
+            plaintext = new JSONObject();
+            try {
+                plaintext.put("error", new JSONObject()
+                        .put("code", "RESPONSE_TOO_LARGE").put("message", "Response too large"));
+            } catch (JSONException ignored) { }
+        }
+        JSONObject envelope = LanSecureChannel.encryptResponse(token, session, plaintext);
+        sendJson(socket, status, envelope, MAX_LAN_WIRE_RESPONSE_BYTES);
+    }
+
+    private static void sendJson(Socket socket, int status, JSONObject body, int maxBytes) {
         try {
             byte[] bytes = body.toString().getBytes(StandardCharsets.UTF_8);
-            if (bytes.length > SecurityValidators.MAX_RESPONSE_BYTES) {
+            if (bytes.length > maxBytes) {
                 bytes = "{\"error\":{\"code\":\"RESPONSE_TOO_LARGE\",\"message\":\"Response too large\"}}"
                         .getBytes(StandardCharsets.UTF_8);
                 status = 500;
