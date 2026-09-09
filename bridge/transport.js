@@ -108,4 +108,12 @@ export class TransportResolver {
     if (!this.cachedLanSource) this.cachedLanSource = 'discovered';
     this.validatedLanAt = this.now();
   }
+
+  noteFailure(url, transport, kind) {
+    if (transport !== 'lan' || !['unreachable', 'outcome_unknown'].includes(kind)) return;
+    let validated;
+    try { validated = validateLanOrigin(url); }
+    catch { return; }
+    if (this.cachedLanUrl === validated) this.validatedLanAt = 0;
+  }
 }

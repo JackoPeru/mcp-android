@@ -190,14 +190,18 @@ public final class TransportManager {
 
         String error = "";
         if (plan.startLan || plan.restartLan) {
-            try {
-                if (!startLan(desiredLan)) error = "LAN discovery unavailable";
-            }
+            try { startLan(desiredLan); }
             catch (Exception e) { error = "LAN listener unavailable"; }
         }
         if (plan.startTailscale || plan.restartTailscale) {
             try { startTailscale(desiredTailscale); }
             catch (Exception e) { error = error.isEmpty() ? "Tailscale listener unavailable" : error + "; Tailscale listener unavailable"; }
+        }
+        if (TransportReconciliation.shouldStartLanDiscovery(lanEndpoint, discoveryResponder.isRunning())) {
+            try { discoveryResponder.start(lanEndpoint); }
+            catch (Exception e) {
+                error = error.isEmpty() ? "LAN discovery unavailable" : error + "; LAN discovery unavailable";
+            }
         }
         lastError = error;
     }
@@ -264,20 +268,13 @@ public final class TransportManager {
         return null;
     }
 
-    private boolean startLan(TransportEndpoint endpoint) throws Exception {
-        if (endpoint == null) return false;
+    private void startLan(TransportEndpoint endpoint) throws Exception {
+        if (endpoint == null) return;
         RpcEndpointServer server = new RpcEndpointServer(context, dispatcher, endpoint,
                 RpcEndpointServer.lanClientPolicy(endpoint.address, endpoint.prefixLength));
         server.start();
         lanServer = server;
         lanEndpoint = endpoint;
-        try {
-            discoveryResponder.start(endpoint);
-            return true;
-        } catch (Exception e) {
-            discoveryResponder.stop();
-            return false;
-        }
     }
 
     private void startTailscale(TransportEndpoint endpoint) throws Exception {

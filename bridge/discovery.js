@@ -25,13 +25,22 @@ function defaultTargets() {
       const address = ipToInt(entry.address);
       const mask = ipToInt(entry.netmask);
       const broadcast = (address | (~mask >>> 0)) >>> 0;
-      targets.push({ broadcast: intToIp(broadcast) });
+      targets.push({ address: entry.address, netmask: entry.netmask, broadcast: intToIp(broadcast) });
     }
   }
   return targets;
 }
 
-function candidateFrom(message, nonce) {
+function sameSubnet(address, localAddress, netmask) {
+  try {
+    const mask = ipToInt(netmask);
+    return ((ipToInt(address) & mask) >>> 0) === ((ipToInt(localAddress) & mask) >>> 0);
+  } catch {
+    return false;
+  }
+}
+
+export function validateDiscoveryResponse(message, nonce, sourceAddress, targets) {
   if (message.length === 0 || message.length > 512) return null;
   let payload;
   try { payload = JSON.parse(message.toString('utf8')); } catch { return null; }
@@ -41,6 +50,16 @@ function candidateFrom(message, nonce) {
   if (keys.length !== expected.length || keys.some((key, index) => key !== expected[index])) return null;
   if (payload.protocol !== PROTOCOL || payload.version !== VERSION || payload.nonce !== nonce ||
       payload.transport !== 'lan' || payload.port !== RPC_PORT || typeof payload.address !== 'string') return null;
+  if (payload.address !== sourceAddress) return null;
+  try {
+    if (!isRfc1918(sourceAddress)) return null;
+  } catch {
+    return null;
+  }
+  const onQueriedSubnet = targets.some(target =>
+    target && typeof target.address === 'string' && typeof target.netmask === 'string' &&
+    sameSubnet(sourceAddress, target.address, target.netmask));
+  if (!onQueriedSubnet) return null;
   try { return validateLanOrigin(`http://${payload.address}:${payload.port}`); }
   catch { return null; }
 }
@@ -63,8 +82,8 @@ export async function discoverLan({ timeoutMs = 350, port = DISCOVERY_PORT, targ
         error ? reject(error) : resolve();
       };
       const timer = setTimeout(() => finish(), timeoutMs);
-      socket.on('message', message => {
-        const candidate = candidateFrom(message, nonce);
+      socket.on('message', (message, remote) => {
+        const candidate = validateDiscoveryResponse(message, nonce, remote.address, targets);
         if (candidate) candidates.add(candidate);
       });
       socket.once('error', error => finish(error));

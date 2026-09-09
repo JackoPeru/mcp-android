@@ -26,6 +26,7 @@ test('optional privileged backends are lazy and accessibility XML is not all-eve
   assert.match(transportManager, /TRANSPORT_WIFI/);
   assert.match(transportManager, /TRANSPORT_VPN/);
   assert.match(transportManager, /discoveryResponder\.stop\(\)/);
+  assert.match(transportManager, /TransportReconciliation\.shouldStartLanDiscovery\(lanEndpoint,\s*discoveryResponder\.isRunning\(\)\)/);
   assert.doesNotMatch(discovery, /SecretStore/);
   assert.match(stopBlock, /current\.enterLowPowerIdle\(\)/);
   assert.match(shizuku, /removeBinderDeadListener/);
