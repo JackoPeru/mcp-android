@@ -8,9 +8,8 @@ import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.SecureRandom;
 import java.util.Base64;
-import java.util.Iterator;
-import java.util.LinkedHashMap;
-import java.util.Map;
+import java.util.LinkedHashSet;
+import java.util.Set;
 
 import javax.crypto.Cipher;
 import javax.crypto.Mac;
@@ -231,24 +230,37 @@ public final class LanSecureChannel {
     }
 
     public static final class ReplayGuard {
-        // Only successfully authenticated requests enter this set, so a LAN attacker
-        // without the token cannot grow it. Keep a long replay horizon for sessions
-        // that remain active for days without turning this into unbounded memory.
-        private static final int MAX_NONCES = 65_536;
-        private final LinkedHashMap<String, Boolean> seen = new LinkedHashMap<>();
+        // v1 uses random 96-bit request nonces. Never evict an authenticated nonce:
+        // once the bounded set is full, reject new requests until /hello rotates the
+        // server session/key. This preserves v0.8.2 wire compatibility without making
+        // an old captured request valid again later in the same session.
+        private static final int DEFAULT_MAX_NONCES = 65_536;
+        private final int maxNonces;
+        private final Set<String> seen = new LinkedHashSet<>();
+        private boolean rotationRequired;
+
+        public ReplayGuard() {
+            this(DEFAULT_MAX_NONCES);
+        }
+
+        ReplayGuard(int maxNonces) {
+            if (maxNonces < 1) throw new IllegalArgumentException("Invalid replay capacity");
+            this.maxNonces = maxNonces;
+        }
 
         public synchronized boolean accept(String nonce) {
             validateNonce(nonce);
-            if (seen.containsKey(nonce)) return false;
-            if (seen.size() >= MAX_NONCES) {
-                Iterator<Map.Entry<String, Boolean>> iterator = seen.entrySet().iterator();
-                if (iterator.hasNext()) {
-                    iterator.next();
-                    iterator.remove();
-                }
+            if (seen.contains(nonce)) return false;
+            if (seen.size() >= maxNonces) {
+                rotationRequired = true;
+                return false;
             }
-            seen.put(nonce, Boolean.TRUE);
+            seen.add(nonce);
             return true;
+        }
+
+        public synchronized boolean needsRotation() {
+            return rotationRequired;
         }
     }
 }

@@ -15,6 +15,7 @@ import org.json.JSONObject;
 
 import java.net.Inet4Address;
 import java.net.InetAddress;
+import java.util.Objects;
 
 /** Owns independent LAN/Tailscale listeners and reconciles them from Android network callbacks. */
 public final class TransportManager {
@@ -32,6 +33,7 @@ public final class TransportManager {
     private RpcEndpointServer tailscaleServer;
     private final LanDiscoveryResponder discoveryResponder = new LanDiscoveryResponder();
     private TransportEndpoint lanEndpoint;
+    private Network lanNetwork;
     private TransportEndpoint tailscaleEndpoint;
     private volatile String lastError = "";
 
@@ -182,17 +184,21 @@ public final class TransportManager {
 
     synchronized void reconcile() {
         if (!monitoring) return;
-        TransportEndpoint desiredLan = discoverLan();
+        LanCandidate desiredLanCandidate = discoverLan();
+        TransportEndpoint desiredLan = desiredLanCandidate == null ? null : desiredLanCandidate.endpoint;
+        Network desiredLanNetwork = desiredLanCandidate == null ? null : desiredLanCandidate.network;
         TransportEndpoint desiredTailscale = discoverTailscale();
         TransportReconciliation.Plan plan = TransportReconciliation.reconcile(
                 lanEndpoint, tailscaleEndpoint, desiredLan, desiredTailscale);
+        boolean lanNetworkChanged = lanEndpoint != null && desiredLan != null
+                && lanEndpoint.equals(desiredLan) && !Objects.equals(lanNetwork, desiredLanNetwork);
 
-        if (plan.stopLan || plan.restartLan) stopLan();
+        if (plan.stopLan || plan.restartLan || lanNetworkChanged) stopLan();
         if (plan.stopTailscale || plan.restartTailscale) stopTailscale();
 
         String error = "";
-        if (plan.startLan || plan.restartLan) {
-            try { startLan(desiredLan); }
+        if (plan.startLan || plan.restartLan || lanNetworkChanged) {
+            try { startLan(desiredLan, desiredLanNetwork); }
             catch (Exception e) { error = "LAN listener unavailable"; }
         }
         if (plan.startTailscale || plan.restartTailscale) {
@@ -200,7 +206,7 @@ public final class TransportManager {
             catch (Exception e) { error = error.isEmpty() ? "Tailscale listener unavailable" : error + "; Tailscale listener unavailable"; }
         }
         if (TransportReconciliation.shouldStartLanDiscovery(lanEndpoint, discoveryResponder.isRunning())) {
-            try { discoveryResponder.start(lanEndpoint, SecretStore.current(context)); }
+            try { discoveryResponder.start(lanEndpoint, lanNetwork, SecretStore.current(context)); }
             catch (Exception e) {
                 error = error.isEmpty() ? "LAN discovery unavailable" : error + "; LAN discovery unavailable";
             }
@@ -208,7 +214,7 @@ public final class TransportManager {
         lastError = error;
     }
 
-    private TransportEndpoint discoverLan() {
+    private LanCandidate discoverLan() {
         ConnectivityManager manager = connectivity;
         if (manager == null) return null;
         try {
@@ -218,7 +224,7 @@ public final class TransportManager {
                         || capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) continue;
                 LinkProperties properties = manager.getLinkProperties(network);
                 TransportEndpoint endpoint = lanFrom(properties);
-                if (endpoint != null) return endpoint;
+                if (endpoint != null) return new LanCandidate(endpoint, network);
             }
         } catch (RuntimeException ignored) { }
         return null;
@@ -270,13 +276,15 @@ public final class TransportManager {
         return null;
     }
 
-    private void startLan(TransportEndpoint endpoint) throws Exception {
+    private void startLan(TransportEndpoint endpoint, Network network) throws Exception {
         if (endpoint == null) return;
+        if (network == null) throw new IllegalArgumentException("Wi-Fi network required");
         RpcEndpointServer server = new RpcEndpointServer(context, dispatcher, endpoint,
                 RpcEndpointServer.lanClientPolicy(endpoint.address, endpoint.prefixLength));
         server.start();
         lanServer = server;
         lanEndpoint = endpoint;
+        lanNetwork = network;
     }
 
     private void startTailscale(TransportEndpoint endpoint) throws Exception {
@@ -293,11 +301,22 @@ public final class TransportManager {
         if (lanServer != null) lanServer.stop();
         lanServer = null;
         lanEndpoint = null;
+        lanNetwork = null;
     }
 
     private void stopTailscale() {
         if (tailscaleServer != null) tailscaleServer.stop();
         tailscaleServer = null;
         tailscaleEndpoint = null;
+    }
+
+    private static final class LanCandidate {
+        final TransportEndpoint endpoint;
+        final Network network;
+
+        LanCandidate(TransportEndpoint endpoint, Network network) {
+            this.endpoint = endpoint;
+            this.network = network;
+        }
     }
 }

@@ -56,6 +56,11 @@ public final class ScreenSnapshotStore {
     public synchronized JSONObject diff(long fromId, long toId) throws ApiException {
         Snapshot from = get(fromId);
         Snapshot to = get(toId);
+        return diff(from, to);
+    }
+
+    public synchronized JSONObject diff(Snapshot from, Snapshot to) throws ApiException {
+        if (from == null || to == null) throw new ApiException("INVALID_ARGUMENT", "Missing screen snapshot");
         JSONObject result = new JSONObject();
         try {
             boolean packageChanged = !from.context.optString("packageName", "")
@@ -92,8 +97,8 @@ public final class ScreenSnapshotStore {
             }
 
             boolean changedAny = !from.uiHash.equals(to.uiHash);
-            result.put("fromSnapshotId", fromId);
-            result.put("toSnapshotId", toId);
+            result.put("fromSnapshotId", from.id);
+            result.put("toSnapshotId", to.id);
             result.put("fromUiHash", from.uiHash);
             result.put("toUiHash", to.uiHash);
             result.put("changed", changedAny);

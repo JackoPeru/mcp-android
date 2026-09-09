@@ -18,10 +18,10 @@ export function isTailscale(ip) {
 
 function validateOrigin(value, predicate, label) {
   const endpoint = new URL(value ?? '');
-  if (!['http:', 'https:'].includes(endpoint.protocol) || isIP(endpoint.hostname) !== 4 ||
+  if (endpoint.protocol !== 'http:' || isIP(endpoint.hostname) !== 4 ||
       endpoint.username || endpoint.password || endpoint.pathname !== '/' || endpoint.search || endpoint.hash ||
       !predicate(endpoint.hostname)) {
-    throw new Error(`${label} must be a numeric private IPv4 HTTP(S) origin without credentials, path, query, or fragment.`);
+    throw new Error(`${label} must be a numeric private IPv4 HTTP origin without credentials, path, query, or fragment.`);
   }
   return endpoint.href;
 }
@@ -132,7 +132,7 @@ export class TransportResolver {
   }
 
   noteFailure(url, transport, error = null) {
-    if (transport !== 'lan' || !['unreachable', 'outcome_unknown'].includes(error?.kind ?? 'outcome_unknown')) return;
+    if (transport !== 'lan' || !['unreachable', 'outcome_unknown'].includes(error?.kind)) return;
     let validated;
     try { validated = validateLanOrigin(url); }
     catch { return; }

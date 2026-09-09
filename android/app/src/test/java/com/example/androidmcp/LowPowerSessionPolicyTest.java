@@ -21,4 +21,9 @@ public final class LowPowerSessionPolicyTest {
     @Test public void vpnWatchdogIsRareFallbackNotPollingLoop() {
         assertEquals(15L * 60L * 1000L, LowPowerSessionPolicy.networkWatchdogMs());
     }
+
+    @Test public void persistentTcpAcceptFailureHasBoundedRetryBackoff() {
+        assertTrue(LowPowerSessionPolicy.networkAcceptFailureBackoffMs() >= 250L);
+        assertTrue(LowPowerSessionPolicy.networkAcceptFailureBackoffMs() <= 5_000L);
+    }
 }

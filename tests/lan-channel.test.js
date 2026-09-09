@@ -117,3 +117,72 @@ test('tampered LAN response is outcome-unknown and invalidates the cached sessio
   });
   assert.equal(client.lanSessions.has(url), false);
 });
+
+test('LAN client uses distinct random request nonces within one authenticated session', async () => {
+  const nonces = [];
+  const fetchImpl = async (target, options) => {
+    if (target.pathname === '/hello') {
+      const request = JSON.parse(options.body);
+      return new Response(JSON.stringify({
+        protocol: 'mcp-android-lan-channel', version: 1, nonce: request.nonce, session,
+        proof: helloProof(token, request.nonce, session),
+      }), { status: 200 });
+    }
+    const envelope = JSON.parse(options.body);
+    nonces.push(envelope.nonce);
+    return new Response(JSON.stringify(encryptResponse(token, session, { result: { ok: true } })), {
+      status: 200,
+      headers: { 'content-type': MEDIA_TYPE },
+    });
+  };
+  const client = new AndroidClient({
+    token,
+    resolver: { resolve: async () => ({ url: 'http://192.168.1.84:8765/', transport: 'lan' }) },
+    fetchImpl,
+  });
+  await client.call('status', {});
+  await client.call('status', {});
+  assert.equal(nonces.length, 2);
+  assert.match(nonces[0], /^[a-f0-9]{24}$/);
+  assert.match(nonces[1], /^[a-f0-9]{24}$/);
+  assert.notEqual(nonces[0], nonces[1]);
+  assert.equal(nonces.every(nonce => nonce.startsWith('00000000')), false);
+});
+
+test('concurrent first LAN calls share one handshake and never reuse a request nonce', async () => {
+  const nonces = [];
+  let hellos = 0;
+  let releaseHello;
+  const helloGate = new Promise(resolve => { releaseHello = resolve; });
+  const fetchImpl = async (target, options) => {
+    if (target.pathname === '/hello') {
+      hellos++;
+      await helloGate;
+      const request = JSON.parse(options.body);
+      return new Response(JSON.stringify({
+        protocol: 'mcp-android-lan-channel', version: 1, nonce: request.nonce, session,
+        proof: helloProof(token, request.nonce, session),
+      }), { status: 200 });
+    }
+    const envelope = JSON.parse(options.body);
+    nonces.push(envelope.nonce);
+    return new Response(JSON.stringify(encryptResponse(token, session, { result: { ok: true } })), {
+      status: 200,
+      headers: { 'content-type': MEDIA_TYPE },
+    });
+  };
+  const client = new AndroidClient({
+    token,
+    resolver: { resolve: async () => ({ url: 'http://192.168.1.84:8765/', transport: 'lan' }) },
+    fetchImpl,
+  });
+  const first = client.call('status', {});
+  const second = client.call('status', {});
+  await new Promise(resolve => setImmediate(resolve));
+  releaseHello();
+  await Promise.all([first, second]);
+  assert.equal(hellos, 1);
+  assert.equal(new Set(nonces).size, 2);
+  assert.match(nonces[0], /^[a-f0-9]{24}$/);
+  assert.match(nonces[1], /^[a-f0-9]{24}$/);
+});

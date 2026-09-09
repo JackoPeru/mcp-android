@@ -304,7 +304,7 @@ public final class RpcDispatcher {
         }
 
         ScreenSnapshotStore.Snapshot after = loop.capture();
-        JSONObject diff = snapshots.diff(before.id, after.id);
+        JSONObject diff = snapshots.diff(before, after);
         JSONObject result = new JSONObject();
         try {
             JSONObject actionState = new JSONObject()

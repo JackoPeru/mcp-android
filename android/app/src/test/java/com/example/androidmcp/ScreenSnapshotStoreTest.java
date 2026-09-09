@@ -70,4 +70,19 @@ public final class ScreenSnapshotStoreTest {
         assertThrows(ApiException.class, () -> store.diff(evicted, retained));
         assertEquals(retained, store.latestId());
     }
+
+    @Test public void pinnedSnapshotsCanStillBeDiffedAfterStoreEviction() throws Exception {
+        ScreenSnapshotStore store = new ScreenSnapshotStore();
+        ScreenSnapshotStore.Snapshot before = store.capture(context("Before", false));
+        ScreenSnapshotStore.Snapshot after = null;
+        for (int i = 0; i < 9; i++) {
+            after = store.capture(context("After " + i, i == 8));
+        }
+        ScreenSnapshotStore.Snapshot finalAfter = after;
+
+        assertThrows(ApiException.class, () -> store.diff(before.id, finalAfter.id));
+        JSONObject diff = store.diff(before, finalAfter);
+        assertTrue(diff.getBoolean("changed"));
+        assertTrue(diff.getBoolean("focusChanged"));
+    }
 }

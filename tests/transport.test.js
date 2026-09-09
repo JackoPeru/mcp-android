@@ -7,12 +7,29 @@ import { decryptRequest, encryptResponse, helloProof } from '../bridge/lan-chann
 test('transport validators keep LAN and Tailscale address spaces separate', () => {
   assert.equal(validateLanOrigin('http://192.168.1.10:8765'), 'http://192.168.1.10:8765/');
   assert.equal(validateTailscaleOrigin('http://100.100.1.2:8765'), 'http://100.100.1.2:8765/');
-  for (const value of ['http://8.8.8.8:8765', 'http://100.100.1.2:8765', 'http://host.local:8765']) {
+  for (const value of ['http://8.8.8.8:8765', 'http://100.100.1.2:8765', 'http://host.local:8765', 'https://192.168.1.10:8765']) {
     assert.throws(() => validateLanOrigin(value));
   }
-  for (const value of ['http://192.168.1.10:8765', 'http://100.128.0.1:8765', 'https://example.com']) {
+  for (const value of ['http://192.168.1.10:8765', 'http://100.128.0.1:8765', 'https://example.com', 'https://100.100.1.2:8765']) {
     assert.throws(() => validateTailscaleOrigin(value));
   }
+});
+
+test('authenticated application errors do not evict a healthy LAN endpoint', async () => {
+  let probes = 0;
+  const resolver = new TransportResolver({
+    preference: 'auto',
+    lanUrl: 'http://192.168.1.84:8765/',
+    tailscaleUrl: 'http://100.100.1.2:8765/',
+    discovery: false,
+  }, {
+    discover: async () => [],
+    probe: async () => { probes++; return true; },
+  });
+  assert.equal((await resolver.resolve()).transport, 'lan');
+  resolver.noteFailure('http://192.168.1.84:8765/', 'lan', new Error('Android INVALID_ARGUMENT'));
+  assert.equal((await resolver.resolve()).transport, 'lan');
+  assert.equal(probes, 1);
 });
 
 test('auto prefers validated LAN and avoids Tailscale', async () => {

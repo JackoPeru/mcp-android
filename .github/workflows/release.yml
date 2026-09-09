@@ -23,6 +23,8 @@ jobs:
       RELEASE_TAG: ${{ inputs.tag }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Require main branch and unused release tag
         env:
@@ -34,6 +36,14 @@ jobs:
           fi
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             echo "::error::Release $RELEASE_TAG already exists and is immutable."
+            exit 1
+          fi
+          git fetch --tags --force origin
+          previous_tag="$(git describe --tags --abbrev=0 HEAD^)"
+          current_code="$(sed -nE 's/^[[:space:]]*versionCode[[:space:]]+([0-9]+)[[:space:]]*$/\1/p' android/app/build.gradle | head -n1)"
+          previous_code="$(git show "${previous_tag}:android/app/build.gradle" | sed -nE 's/^[[:space:]]*versionCode[[:space:]]+([0-9]+)[[:space:]]*$/\1/p' | head -n1)"
+          if [ -z "$current_code" ] || [ -z "$previous_code" ] || [ "$current_code" -le "$previous_code" ]; then
+            echo "::error::Android versionCode must increase beyond $previous_tag ($previous_code)."
             exit 1
           fi
 

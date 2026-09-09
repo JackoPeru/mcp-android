@@ -236,7 +236,14 @@ public final class McpHttpServer {
                 }
             } catch (IOException e) {
                 if (running.get()) {
-                    // A transient accept failure is retried while service remains running.
+                    // Avoid a hot CPU loop if the platform starts returning a persistent
+                    // accept error while the listener still appears active.
+                    try {
+                        Thread.sleep(LowPowerSessionPolicy.networkAcceptFailureBackoffMs());
+                    } catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                        return;
+                    }
                     continue;
                 }
                 return;
@@ -351,8 +358,8 @@ public final class McpHttpServer {
                 JSONObject request = parseObject(readBody(input, headers.contentLength));
                 JsonArgs.only(request, "nonce");
                 String nonce = JsonArgs.requiredString(request, "nonce", 64);
-                String session = lanSession;
-                if (session == null || !running.get()) {
+                String session = prepareLanSessionForHello();
+                if (session == null) {
                     sendError(client, 503, "SERVICE_STOPPED", "Remote service is stopped");
                     return;
                 }
@@ -423,6 +430,15 @@ public final class McpHttpServer {
             } catch (JSONException ignored) { }
         }
         sendLanJson(client, status, response, token, session);
+    }
+
+    private synchronized String prepareLanSessionForHello() {
+        if (!running.get() || lanSession == null || lanReplayGuard == null) return null;
+        if (lanReplayGuard.needsRotation()) {
+            lanSession = LanSecureChannel.newSessionId();
+            lanReplayGuard = new LanSecureChannel.ReplayGuard();
+        }
+        return lanSession;
     }
 
     static int httpStatus(String code) {

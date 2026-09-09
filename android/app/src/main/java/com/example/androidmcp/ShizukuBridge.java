@@ -176,12 +176,20 @@ public final class ShizukuBridge {
                 throw new ApiException("SHIZUKU_BIND_FAILED", "Shizuku user service did not connect");
             return current;
         } catch (java.util.concurrent.TimeoutException e) {
+            clearFailedBinding(future);
             throw new ApiException("SHIZUKU_BIND_TIMEOUT", "Shizuku user service bind timed out");
         } catch (InterruptedException e) {
+            clearFailedBinding(future);
             Thread.currentThread().interrupt();
             throw new ApiException("TIMEOUT", "Shizuku bind interrupted");
         } catch (java.util.concurrent.ExecutionException e) {
             throw new ApiException("SHIZUKU_BIND_FAILED", "Shizuku user service bind failed");
+        }
+    }
+
+    private static void clearFailedBinding(CompletableFuture<IShizukuShellService> failed) {
+        synchronized (LOCK) {
+            if (binding == failed) binding = null;
         }
     }
 

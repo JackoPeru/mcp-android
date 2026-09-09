@@ -6,6 +6,7 @@ import org.junit.Test;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThrows;
+import static org.junit.Assert.assertTrue;
 
 public final class LanSecureChannelTest {
     private static final String TOKEN = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -42,5 +43,20 @@ public final class LanSecureChannelTest {
                 () -> LanSecureChannel.decryptRequest(TOKEN, SESSION, envelope, guard));
         assertThrows(IllegalArgumentException.class,
                 () -> LanSecureChannel.decryptRequest(TOKEN, "f".repeat(32), envelope, null));
+    }
+
+    @Test public void legacyRandomNoncesNeverBecomeReplayableWhenGuardFills() {
+        LanSecureChannel.ReplayGuard guard = new LanSecureChannel.ReplayGuard(3);
+        String one = "111111111111111111111111";
+        String two = "222222222222222222222222";
+        String three = "333333333333333333333333";
+        String four = "444444444444444444444444";
+        assertTrue(guard.accept(one));
+        assertTrue(guard.accept(two));
+        assertTrue(guard.accept(three));
+        assertFalse(guard.accept(one));
+        assertFalse(guard.accept(four));
+        assertTrue(guard.needsRotation());
+        assertTrue(new LanSecureChannel.ReplayGuard(3).accept(four));
     }
 }

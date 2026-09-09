@@ -7,6 +7,7 @@ import java.util.concurrent.TimeUnit;
 /** Pure policy for minimizing background work outside an explicit remote-control session. */
 public final class LowPowerSessionPolicy {
     private static final long NETWORK_WATCHDOG_MS = 15L * 60L * 1000L;
+    private static final long NETWORK_ACCEPT_FAILURE_BACKOFF_MS = 1_000L;
 
     private LowPowerSessionPolicy() { }
 
@@ -20,6 +21,10 @@ public final class LowPowerSessionPolicy {
 
     static long networkWatchdogMs() {
         return NETWORK_WATCHDOG_MS;
+    }
+
+    static long networkAcceptFailureBackoffMs() {
+        return NETWORK_ACCEPT_FAILURE_BACKOFF_MS;
     }
 
     static ThreadPoolExecutor createSingleIdleWorkerExecutor(String threadName) {

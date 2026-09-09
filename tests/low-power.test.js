@@ -29,6 +29,14 @@ test('optional privileged backends are lazy and accessibility XML is not all-eve
   assert.match(transportManager, /discoveryResponder\.stop\(\)/);
   assert.match(transportManager, /TransportReconciliation\.shouldStartLanDiscovery\(lanEndpoint,\s*discoveryResponder\.isRunning\(\)\)/);
   assert.doesNotMatch(discovery, /SecretStore/);
+  assert.match(discovery, /Network\s+wifiNetwork/);
+  assert.match(discovery, /wifiNetwork\.bindSocket\(candidate\)/);
+  assert.match(discovery, /current\.receive\(packet\);\s*\}\s*catch \(IOException[^)]*\) \{\s*failClosed\(current\);\s*return;/s);
+  assert.match(discovery, /private synchronized void failClosed\(DatagramSocket failed\)/);
+  assert.doesNotMatch(discovery, /catch \(SocketException[^)]*\) \{[^}]*continue;/s);
   assert.match(stopBlock, /current\.enterLowPowerIdle\(\)/);
   assert.match(shizuku, /removeBinderDeadListener/);
+  assert.match(shizuku, /catch \(java\.util\.concurrent\.TimeoutException e\) \{\s*clearFailedBinding\(future\);/s);
+  assert.match(shizuku, /catch \(InterruptedException e\) \{\s*clearFailedBinding\(future\);/s);
+  assert.match(shizuku, /private static void clearFailedBinding\(CompletableFuture<IShizukuShellService> failed\)/);
 });

@@ -43,6 +43,7 @@ export class AndroidClient {
     this.fetch = fetchImpl;
     this.resolver = resolver;
     this.lanSessions = new Map();
+    this.lanSessionPromises = new Map();
     if (!this.url && !this.resolver) {
       this.resolver = new TransportResolver({ preference, lanUrl, tailscaleUrl, discovery }, {
         discover: () => discoverLan({ token: this.token }),
@@ -140,12 +141,12 @@ export class AndroidClient {
       });
       if (response.status >= 300 && response.status < 400) {
         await response.body?.cancel();
-        this.lanSessions.delete(url);
+        this.invalidateLanSession(url);
         throw this.lanUnauthenticatedResponseError(probe);
       }
       if (response.status === 401) {
         await response.body?.cancel();
-        this.lanSessions.delete(url);
+        this.invalidateLanSession(url);
         throw this.lanUnauthenticatedResponseError(probe);
       }
       let payload;
@@ -153,7 +154,7 @@ export class AndroidClient {
         payload = decryptLanResponse(this.token, session,
           await this.readJsonResponse(response, this.lanWireResponseLimit()));
       } catch {
-        this.lanSessions.delete(url);
+        this.invalidateLanSession(url);
         throw this.lanUnauthenticatedResponseError(probe);
       }
       return this.unwrapPayload(response, payload);
@@ -175,6 +176,18 @@ export class AndroidClient {
   async ensureLanSession(url, timeoutMs) {
     const cached = this.lanSessions.get(url);
     if (cached) return cached;
+    const pending = this.lanSessionPromises.get(url);
+    if (pending) return pending;
+    const promise = this.establishLanSession(url, timeoutMs);
+    this.lanSessionPromises.set(url, promise);
+    try {
+      return await promise;
+    } finally {
+      if (this.lanSessionPromises.get(url) === promise) this.lanSessionPromises.delete(url);
+    }
+  }
+
+  async establishLanSession(url, timeoutMs) {
     const nonce = randomHelloNonce();
     const response = await this.fetch(new URL('hello', url), {
       method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(timeoutMs),
@@ -196,6 +209,11 @@ export class AndroidClient {
     }
     this.lanSessions.set(url, session);
     return session;
+  }
+
+  invalidateLanSession(url) {
+    this.lanSessions.delete(url);
+    this.lanSessionPromises.delete(url);
   }
 
   async readJsonResponse(response, maxBytes) {
