@@ -69,7 +69,7 @@ Un errore dopo l'invio di una RPC mutante non provoca il replay automatico sulla
 
 ## Aggiornamenti
 
-L'app controlla al massimo una volta ogni 24 ore la **latest stable release** di `JackoPeru/mcp-android`. È disponibile anche il pulsante **Controlla aggiornamenti** per forzare il controllo.
+L'app controlla al massimo una volta ogni 24 ore la **latest stable release** di `JackoPeru/mcp-android`. È disponibile anche il pulsante **Controlla aggiornamenti** per forzare il controllo. Come in HermesHub, il flusso è esplicito in tre fasi: **Controlla → Scarica aggiornamento → Installa aggiornamento**. L'APK verificato resta pronto nell'area privata dell'app e può essere riutilizzato senza riscaricarlo.
 
 La catena di aggiornamento applica questi vincoli:
 
@@ -79,9 +79,10 @@ La catena di aggiornamento applica questi vincoli:
 - download APK limitato a 100 MiB;
 - verifica SHA-256 prima di consegnare il pacchetto ad Android;
 - verifica preventiva dell'APK scaricato: package esatto, `versionName` atteso, `versionCode` crescente e certificato di firma identico all'app installata;
-- installazione tramite `PackageInstaller`, che esegue inoltre i controlli Android nativi;
+- download su file `.part`, controllo dimensione/SHA-256/package/versionCode/firma prima del rename definitivo;
+- handoff tramite `FileProvider` all'installer APK standard di Android;
 - nessuna installazione silenziosa: Android richiede la conferma dell'utente;
-- al primo aggiornamento Android può richiedere di autorizzare MCP Android come sorgente per l'installazione di APK.
+- al primo aggiornamento Android può richiedere di autorizzare MCP Android come sorgente per l'installazione di APK; al ritorno nell'app si preme nuovamente **Installa aggiornamento**, senza auto-installazione nascosta.
 
 Il certificato che firma le release deve restare identico a quello usato dalla v0.5.0 e dalle release successive. La workflow `.github/workflows/release.yml` verifica esplicitamente il fingerprint prima di pubblicare. Le release sono **immutabili**: un tag esistente non viene aggiornato né sovrascritto. La pubblicazione locale richiede inoltre `main` pulito e perfettamente sincronizzato con `origin/main`.
 

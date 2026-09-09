@@ -2,7 +2,7 @@ package com.example.androidmcp;
 
 import java.util.Set;
 
-/** Pure validation rules for a downloaded APK before handing it to PackageInstaller. */
+/** Pure validation rules for a downloaded APK before handing it to Android's installer UI. */
 public final class ApkIdentityValidation {
     private ApkIdentityValidation() { }
 

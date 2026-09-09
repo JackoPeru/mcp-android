@@ -23,10 +23,13 @@ import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
+import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 import org.json.JSONObject;
+
+import java.io.File;
 
 /** UI only: every control delegates to the existing permission and runtime APIs. */
 public final class MainActivity extends Activity {
@@ -44,19 +47,45 @@ public final class MainActivity extends Activity {
     private int rootCount;
     private TextView heroBadge, heroTitle, heroDescription, errorMessage, lanValue, tailscaleValue;
     private TextView preferredLabel, accessibilityBadge, notificationBadge, folderBadge, updateStatus;
+    private TextView updateLatest, updateNotes, updateProgressLabel;
     private TextView setupDescription, advancedLabel;
-    private Button sessionButton, setupButton;
+    private Button sessionButton, setupButton, updateDownloadButton, updateInstallButton;
+    private ProgressBar updateProgress;
     private LinearLayout rootList, advancedBody;
     private String transportDetails = "";
+    private UpdateManager.Release updateRelease;
+    private File updateApk;
 
     private final UpdateManager.Callback updateCallback = new UpdateManager.Callback() {
         @Override public void onState(String message) { setUpdateStatus(message); }
-        @Override public void onNoUpdate(String version) { setUpdateStatus("Sei aggiornato alla versione " + version + "."); }
-        @Override public void onUpdateAvailable(UpdateManager.Release release) {
-            setUpdateStatus("Disponibile la versione " + release.version + ".");
-            showUpdateDialog(release);
+        @Override public void onNoUpdate(String version) {
+            updateRelease = null; updateApk = null;
+            hideUpdateProgress();
+            setUpdateStatus("Sei aggiornato alla versione " + version + ".");
+            renderUpdateControls();
         }
-        @Override public void onError(String message) { setUpdateStatus(getString(R.string.update_error, message)); }
+        @Override public void onUpdateAvailable(UpdateManager.Release release, File downloadedApk) {
+            updateRelease = release; updateApk = downloadedApk;
+            if (downloadedApk == null) hideUpdateProgress();
+            setUpdateStatus(downloadedApk == null
+                    ? "Aggiornamento disponibile. Scarica l'APK dentro l'app."
+                    : "Aggiornamento già scaricato e verificato. Puoi installarlo.");
+            renderUpdateControls();
+        }
+        @Override public void onDownloadProgress(UpdateManager.Release release, long downloadedBytes, long totalBytes) {
+            if (updateRelease == null || !updateRelease.version.equals(release.version)) updateRelease = release;
+            renderDownloadProgress(downloadedBytes, totalBytes);
+        }
+        @Override public void onDownloadReady(UpdateManager.Release release, File apk) {
+            updateRelease = release; updateApk = apk;
+            setUpdateStatus("Download completato. APK verificato e pronto per l'installazione.");
+            renderUpdateControls();
+        }
+        @Override public void onError(String message) {
+            setUpdateStatus(getString(R.string.update_error, message));
+            hideUpdateProgress();
+            renderUpdateControls();
+        }
     };
     private final Runnable refreshStatus = new Runnable() {
         @Override public void run() {
@@ -226,7 +255,22 @@ public final class MainActivity extends Activity {
         LinearLayout updates = ui.card(body);
         ui.heading(updates, "update", "Sempre aggiornato", "Versione installata " + installedVersion());
         updateStatus = ui.text("Controllo automatico una volta al giorno.", 14, UiKit.MUTED, false); ui.add(updates, updateStatus, 14);
+        updateLatest = ui.text("", 12, UiKit.MUTED, true); updateLatest.setVisibility(View.GONE); ui.add(updates, updateLatest, 10);
+        updateNotes = ui.text("", 13, UiKit.TEXT, false); updateNotes.setVisibility(View.GONE); ui.add(updates, updateNotes, 10);
+        updateProgress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        updateProgress.setMax(100); updateProgress.setProgress(0); updateProgress.setVisibility(View.GONE); ui.add(updates, updateProgress, 14);
+        updateProgressLabel = ui.text("", 12, UiKit.MUTED, false); updateProgressLabel.setVisibility(View.GONE); ui.add(updates, updateProgressLabel, 8);
         ui.add(updates, ui.button("Controlla aggiornamenti", false, () -> UpdateManager.check(this, true, updateCallback)), 16);
+        updateDownloadButton = ui.button("Scarica aggiornamento", true, () -> {
+            if (updateRelease != null) UpdateManager.download(this, updateRelease, updateCallback);
+        });
+        updateDownloadButton.setVisibility(View.GONE); ui.add(updates, updateDownloadButton, 10);
+        updateInstallButton = ui.button("Installa aggiornamento", true, () -> {
+            if (updateRelease != null && updateApk != null) {
+                UpdateManager.installDownloaded(this, updateRelease, updateApk, updateCallback);
+            }
+        });
+        updateInstallButton.setVisibility(View.GONE); ui.add(updates, updateInstallButton, 10);
         LinearLayout battery = ui.card(body);
         ui.heading(battery, "settings", "Continuità in background", "Se Android sospende l'app, controlla le impostazioni della batteria per mantenerla disponibile durante una sessione.");
         ui.add(battery, ui.button("Apri impostazioni app", false, () -> safely(() -> startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName()))))), 16);
@@ -375,16 +419,62 @@ public final class MainActivity extends Activity {
         AlertDialog dialog = new AlertDialog.Builder(this).setTitle("Il tuo token di accesso").setView(content).setPositiveButton("Chiudi", null).create();
         dialog.getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE); dialog.show();
     }
-    private void showUpdateDialog(UpdateManager.Release release) {
-        if (isFinishing() || isDestroyed()) return;
-        StringBuilder message = new StringBuilder("Installata: ").append(installedVersion()).append("\nDisponibile: ").append(release.version)
-                .append("\n\nIl pacchetto viene verificato prima di aprire l'installer Android. La conferma finale resta tua.");
-        if (release.notes != null && !release.notes.trim().isEmpty()) {
-            String notes = release.notes.trim(); message.append("\n\n").append(notes.length() > 1200 ? notes.substring(0, 1200) + "…" : notes);
+    private void renderUpdateControls() {
+        if (isDestroyed()) return;
+        boolean hasRelease = updateRelease != null;
+        boolean ready = hasRelease && updateApk != null && updateApk.isFile();
+        if (updateLatest != null) {
+            if (hasRelease) {
+                replace(updateLatest, "Latest: " + updateRelease.version + "  •  " + updateRelease.apkName);
+                updateLatest.setVisibility(View.VISIBLE);
+            } else updateLatest.setVisibility(View.GONE);
         }
-        new AlertDialog.Builder(this).setTitle("È disponibile un aggiornamento").setMessage(message.toString())
-                .setPositiveButton("Aggiorna", (dialog, which) -> UpdateManager.install(this, release, updateCallback))
-                .setNegativeButton("Più tardi", null).show();
+        if (updateNotes != null) {
+            String notes = hasRelease && updateRelease.notes != null ? updateRelease.notes.trim() : "";
+            if (!notes.isEmpty()) {
+                if (notes.length() > 1600) notes = notes.substring(0, 1600) + "…";
+                replace(updateNotes, "Novità:\n" + notes);
+                updateNotes.setVisibility(View.VISIBLE);
+            } else updateNotes.setVisibility(View.GONE);
+        }
+        if (updateDownloadButton != null) updateDownloadButton.setVisibility(hasRelease && !ready ? View.VISIBLE : View.GONE);
+        if (updateInstallButton != null) updateInstallButton.setVisibility(ready ? View.VISIBLE : View.GONE);
+        if (ready && updateProgress != null && updateProgressLabel != null) {
+            updateProgress.setIndeterminate(false); updateProgress.setProgress(100); updateProgress.setVisibility(View.VISIBLE);
+            replace(updateProgressLabel, "100%  •  " + readableBytes(updateApk.length())); updateProgressLabel.setVisibility(View.VISIBLE);
+        } else if (!hasRelease) {
+            if (updateProgress != null) updateProgress.setVisibility(View.GONE);
+            if (updateProgressLabel != null) updateProgressLabel.setVisibility(View.GONE);
+        }
+    }
+    private void renderDownloadProgress(long downloadedBytes, long totalBytes) {
+        if (updateProgress == null || updateProgressLabel == null) return;
+        updateProgress.setVisibility(View.VISIBLE); updateProgressLabel.setVisibility(View.VISIBLE);
+        if (totalBytes > 0) {
+            int percent = (int)Math.min(100L, downloadedBytes * 100L / totalBytes);
+            updateProgress.setIndeterminate(false); updateProgress.setProgress(percent);
+            replace(updateProgressLabel, percent + "%  •  " + readableBytes(downloadedBytes) + " / " + readableBytes(totalBytes));
+            setUpdateStatus("Scaricamento APK in corso… " + percent + "%");
+        } else {
+            updateProgress.setIndeterminate(true);
+            replace(updateProgressLabel, readableBytes(downloadedBytes));
+            setUpdateStatus("Scaricamento APK in corso…");
+        }
+        if (updateDownloadButton != null) updateDownloadButton.setVisibility(View.GONE);
+        if (updateInstallButton != null) updateInstallButton.setVisibility(View.GONE);
+    }
+    private void hideUpdateProgress() {
+        if (updateProgress != null) updateProgress.setVisibility(View.GONE);
+        if (updateProgressLabel != null) updateProgressLabel.setVisibility(View.GONE);
+    }
+    private static String readableBytes(long value) {
+        if (value <= 0) return "0 B";
+        double size = value;
+        String[] units = {"B", "KB", "MB", "GB"};
+        int index = 0;
+        while (size >= 1024 && index < units.length - 1) { size /= 1024.0; index++; }
+        return index == 0 ? ((long)size) + " " + units[index]
+                : String.format(java.util.Locale.US, "%.1f %s", size, units[index]);
     }
     private void setUpdateStatus(String message) { if (!isDestroyed() && updateStatus != null) replace(updateStatus, message); }
     private String installedVersion() {
@@ -434,7 +524,7 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onResume() {
         super.onResume(); refreshRoots(); refreshPermissions(); handler.removeCallbacks(refreshStatus); handler.post(refreshStatus);
-        UpdateManager.resumePending(this, updateCallback); UpdateManager.check(this, false, updateCallback);
+        UpdateManager.check(this, false, updateCallback);
     }
     @Override protected void onPause() { handler.removeCallbacks(refreshStatus); super.onPause(); }
     @Override protected void onDestroy() { handler.removeCallbacksAndMessages(null); super.onDestroy(); }

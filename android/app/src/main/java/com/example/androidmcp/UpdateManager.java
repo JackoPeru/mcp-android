@@ -1,12 +1,10 @@
 package com.example.androidmcp;
 
 import android.app.Activity;
-import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageInfo;
-import android.content.pm.PackageInstaller;
 import android.content.pm.PackageManager;
 import android.content.pm.Signature;
 import android.net.Uri;
@@ -14,18 +12,17 @@ import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
 
+import androidx.core.content.FileProvider;
+
 import org.json.JSONArray;
-import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.BufferedInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
@@ -42,7 +39,6 @@ public final class UpdateManager {
             "https://api.github.com/repos/JackoPeru/mcp-android/releases/latest";
     private static final String PREFS = "updates";
     private static final String LAST_CHECK = "lastCheck";
-    private static final String PENDING = "pending";
     private static final long AUTO_CHECK_INTERVAL_MS = 24L * 60L * 60L * 1000L;
     private static final long MAX_APK_BYTES = 100L * 1024L * 1024L;
     private static final int MAX_JSON_BYTES = 512 * 1024;
@@ -51,7 +47,7 @@ public final class UpdateManager {
     private static final ThreadPoolExecutor EXECUTOR =
             LowPowerSessionPolicy.createSingleIdleWorkerExecutor("android-mcp-updater");
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
-    private static final AtomicBoolean INSTALLING = new AtomicBoolean(false);
+    private static final AtomicBoolean DOWNLOADING = new AtomicBoolean(false);
     private static final Set<String> DOWNLOAD_HOSTS = new HashSet<>();
     private static final Set<String> API_HOSTS = new HashSet<>();
 
@@ -67,7 +63,9 @@ public final class UpdateManager {
     public interface Callback {
         void onState(String message);
         void onNoUpdate(String currentVersion);
-        void onUpdateAvailable(Release release);
+        void onUpdateAvailable(Release release, File downloadedApk);
+        void onDownloadProgress(Release release, long downloadedBytes, long totalBytes);
+        void onDownloadReady(Release release, File apk);
         void onError(String message);
     }
 
@@ -89,26 +87,6 @@ public final class UpdateManager {
             this.notes = notes;
         }
 
-        JSONObject json() throws JSONException {
-            JSONObject object = new JSONObject();
-            object.put("version", version);
-            object.put("tag", tag);
-            object.put("apkUrl", apkUrl);
-            object.put("hashUrl", hashUrl);
-            object.put("apkName", apkName);
-            object.put("notes", notes);
-            return object;
-        }
-
-        static Release from(JSONObject object) throws JSONException {
-            return new Release(
-                    object.getString("version"),
-                    object.getString("tag"),
-                    object.getString("apkUrl"),
-                    object.getString("hashUrl"),
-                    object.getString("apkName"),
-                    object.optString("notes", ""));
-        }
     }
 
     public static void check(Activity activity, boolean force, Callback callback) {
@@ -122,7 +100,8 @@ public final class UpdateManager {
                 prefs.edit().putLong(LAST_CHECK, System.currentTimeMillis()).apply();
                 String current = currentVersion(activity);
                 if (Versioning.compare(release.version, current) > 0) {
-                    MAIN.post(() -> callback.onUpdateAvailable(release));
+                    File downloaded = findDownloadedUpdate(activity, release);
+                    MAIN.post(() -> callback.onUpdateAvailable(release, downloaded));
                 } else {
                     MAIN.post(() -> callback.onNoUpdate(current));
                 }
@@ -132,53 +111,71 @@ public final class UpdateManager {
         });
     }
 
-    public static void install(Activity activity, Release release, Callback callback) {
-        if (!activity.getPackageManager().canRequestPackageInstalls()) {
-            try {
-                activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                        .edit().putString(PENDING, release.json().toString()).apply();
-            } catch (JSONException e) {
-                error(callback, "Impossibile preparare l'aggiornamento.");
-                return;
-            }
-            Intent settings = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                    Uri.parse("package:" + activity.getPackageName()));
-            activity.startActivity(settings);
-            state(callback, "Abilita «Installa app sconosciute», poi torna in MCP Android.");
+    public static void download(Activity activity, Release release, Callback callback) {
+        if (!DOWNLOADING.compareAndSet(false, true)) {
+            state(callback, "Un download è già in corso.");
             return;
         }
-        if (!INSTALLING.compareAndSet(false, true)) {
-            state(callback, "Un aggiornamento è già in corso.");
-            return;
-        }
-        activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(PENDING).apply();
         state(callback, "Scaricamento aggiornamento…");
         EXECUTOR.execute(() -> {
             try {
                 File apk = downloadAndVerify(activity, release, callback);
-                verifyApkIdentity(activity, apk, release);
-                commitInstall(activity, apk);
-                state(callback, "Download verificato. Conferma l'installazione Android.");
+                MAIN.post(() -> callback.onDownloadReady(release, apk));
             } catch (Exception e) {
-                INSTALLING.set(false);
-                error(callback, "Aggiornamento non riuscito: " + safeMessage(e));
+                error(callback, "Download non riuscito: " + safeMessage(e));
+            } finally {
+                DOWNLOADING.set(false);
             }
         });
     }
 
-    static void installFinished() {
-        INSTALLING.set(false);
+    public static void installDownloaded(Activity activity, Release release, File apk, Callback callback) {
+        try {
+            requireManagedUpdateFile(activity, release, apk);
+            verifyApkIdentity(activity, apk, release);
+        } catch (Exception e) {
+            if (apk != null) apk.delete();
+            error(callback, "APK non valido: " + safeMessage(e));
+            return;
+        }
+
+        if (!activity.getPackageManager().canRequestPackageInstalls()) {
+            Intent settings = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                    Uri.parse("package:" + activity.getPackageName()));
+            try {
+                activity.startActivity(settings);
+                state(callback, "Consenti a MCP Android di installare APK sconosciuti, poi premi di nuovo Installa aggiornamento.");
+            } catch (RuntimeException e) {
+                error(callback, "Impossibile aprire il permesso di installazione.");
+            }
+            return;
+        }
+
+        try {
+            Uri contentUri = FileProvider.getUriForFile(activity,
+                    activity.getPackageName() + ".fileprovider", apk);
+            Intent installIntent = new Intent(Intent.ACTION_VIEW)
+                    .setDataAndType(contentUri, "application/vnd.android.package-archive")
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            activity.startActivity(installIntent);
+            state(callback, "Installer Android aperto. Conferma l'aggiornamento.");
+        } catch (RuntimeException e) {
+            error(callback, "Impossibile aprire l'installer Android.");
+        }
     }
 
-    public static void resumePending(Activity activity, Callback callback) {
-        if (!activity.getPackageManager().canRequestPackageInstalls()) return;
-        String raw = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(PENDING, "");
-        if (raw == null || raw.isEmpty()) return;
+    public static File findDownloadedUpdate(Context context, Release release) {
+        File ready = new File(updateDirectory(context), release.apkName);
+        if (!ready.isFile() || ready.length() <= 0 || ready.length() > MAX_APK_BYTES) {
+            if (ready.exists()) ready.delete();
+            return null;
+        }
         try {
-            Release release = Release.from(new JSONObject(raw));
-            install(activity, release, callback);
-        } catch (JSONException e) {
-            activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(PENDING).apply();
+            verifyApkIdentity(context, ready, release);
+            return ready;
+        } catch (Exception e) {
+            ready.delete();
+            return null;
         }
     }
 
@@ -216,12 +213,11 @@ public final class UpdateManager {
                 readBounded(open(new URL(release.hashUrl), DOWNLOAD_HOSTS), MAX_HASH_BYTES),
                 StandardCharsets.US_ASCII), release.apkName);
 
-        File directory = new File(activity.getCacheDir(), "updates");
+        File directory = updateDirectory(activity);
         if (!directory.exists() && !directory.mkdirs()) throw new IOException("Update cache unavailable");
         File partial = new File(directory, release.apkName + ".part");
         File ready = new File(directory, release.apkName);
         if (partial.exists() && !partial.delete()) throw new IOException("Old partial update locked");
-        if (ready.exists() && !ready.delete()) throw new IOException("Old update locked");
 
         boolean completed = false;
         try {
@@ -234,31 +230,37 @@ public final class UpdateManager {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             long total = 0;
             try (InputStream input = new BufferedInputStream(connection.getInputStream());
-                 OutputStream output = new FileOutputStream(partial)) {
+                 FileOutputStream output = new FileOutputStream(partial)) {
                 byte[] buffer = new byte[64 * 1024];
                 int read;
-                long nextProgress = 5L * 1024L * 1024L;
+                int lastPercent = -2;
                 while ((read = input.read(buffer)) >= 0) {
                     if (read == 0) continue;
                     total += read;
                     if (total > MAX_APK_BYTES) throw new IOException("APK too large");
                     digest.update(buffer, 0, read);
                     output.write(buffer, 0, read);
-                    if (total >= nextProgress) {
+                    int percent = declared > 0 ? (int) Math.min(100L, total * 100L / declared) : -1;
+                    if (percent != lastPercent) {
+                        lastPercent = percent;
                         final long current = total;
-                        state(callback, String.format(Locale.ROOT,
-                                "Scaricati %.1f MB…", current / 1048576.0));
-                        nextProgress += 5L * 1024L * 1024L;
+                        final long expectedTotal = declared;
+                        MAIN.post(() -> callback.onDownloadProgress(release, current, expectedTotal));
                     }
                 }
+                output.flush();
+                output.getFD().sync();
             } finally {
                 connection.disconnect();
             }
+            if (declared > 0 && total != declared) throw new IOException("Download incompleto");
             String actual = hex(digest.digest());
             if (!MessageDigest.isEqual(actual.getBytes(StandardCharsets.US_ASCII),
                     expected.getBytes(StandardCharsets.US_ASCII))) {
                 throw new IOException("SHA-256 non valido");
             }
+            verifyApkIdentity(activity, partial, release);
+            if (ready.exists() && !ready.delete()) throw new IOException("Old update locked");
             if (!partial.renameTo(ready)) throw new IOException("Impossibile finalizzare APK");
             completed = true;
             return ready;
@@ -267,37 +269,15 @@ public final class UpdateManager {
         }
     }
 
-    private static void commitInstall(Context context, File apk) throws Exception {
-        PackageInstaller installer = context.getPackageManager().getPackageInstaller();
-        PackageInstaller.SessionParams params =
-                new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
-        params.setAppPackageName(context.getPackageName());
-        if (android.os.Build.VERSION.SDK_INT >= 31) {
-            params.setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_REQUIRED);
-        }
-        int sessionId = installer.createSession(params);
-        PackageInstaller.Session session = installer.openSession(sessionId);
-        boolean committed = false;
-        try (InputStream input = new FileInputStream(apk);
-             OutputStream output = session.openWrite("base.apk", 0, apk.length())) {
-            byte[] buffer = new byte[64 * 1024];
-            int read;
-            while ((read = input.read(buffer)) >= 0) {
-                if (read > 0) output.write(buffer, 0, read);
-            }
-            session.fsync(output);
-            Intent status = new Intent(context, UpdateInstallReceiver.class)
-                    .setAction(UpdateInstallReceiver.ACTION)
-                    .setPackage(context.getPackageName());
-            int flags = PendingIntent.FLAG_UPDATE_CURRENT;
-            if (android.os.Build.VERSION.SDK_INT >= 31) flags |= PendingIntent.FLAG_MUTABLE;
-            PendingIntent pending = PendingIntent.getBroadcast(context, sessionId, status, flags);
-            session.commit(pending.getIntentSender());
-            committed = true;
-        } finally {
-            if (!committed) session.abandon();
-            session.close();
-        }
+    private static File updateDirectory(Context context) {
+        File external = context.getExternalFilesDir(null);
+        return new File(external != null ? external : context.getCacheDir(), "updates");
+    }
+
+    private static void requireManagedUpdateFile(Context context, Release release, File apk) throws IOException {
+        if (apk == null || !apk.isFile()) throw new IOException("APK non trovato");
+        File expected = new File(updateDirectory(context), release.apkName).getCanonicalFile();
+        if (!apk.getCanonicalFile().equals(expected)) throw new IOException("Percorso APK inatteso");
     }
 
     private static void verifyApkIdentity(Context context, File apk, Release release) throws Exception {
