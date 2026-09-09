@@ -113,7 +113,7 @@ export class TransportResolver {
         this.lanRetryAfter = 0;
         return url;
       } catch {
-        // Discovery is unauthenticated; reject spoofed/unreachable candidates and continue.
+        // HMAC authenticates discovery; the RPC probe still confirms reachability/channel setup.
       }
     }
     this.lanRetryAfter = this.now() + this.lanRetryMs;

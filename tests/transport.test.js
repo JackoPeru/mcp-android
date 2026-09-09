@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { TransportResolver, validateLanOrigin, validateTailscaleOrigin } from '../bridge/transport.js';
 import { AndroidClient } from '../bridge/client.js';
+import { decryptRequest, encryptResponse, helloProof } from '../bridge/lan-channel.js';
 
 test('transport validators keep LAN and Tailscale address spaces separate', () => {
   assert.equal(validateLanOrigin('http://192.168.1.10:8765'), 'http://192.168.1.10:8765/');
@@ -93,6 +94,7 @@ test('LAN transport failure invalidates recent cache so the next RPC falls back 
   let now = 1_000;
   let lanAlive = true;
   const probes = [];
+  const session = '0123456789abcdef0123456789abcdef';
   const resolver = new TransportResolver({
     preference: 'auto',
     lanUrl: 'http://192.168.1.84:8765/',
@@ -115,9 +117,24 @@ test('LAN transport failure invalidates recent cache so the next RPC falls back 
   const client = new AndroidClient({
     token: 'a'.repeat(64),
     resolver,
-    fetchImpl: async url => {
+    fetchImpl: async (url, options) => {
+      if (url.hostname === '192.168.1.84' && url.pathname === '/hello') {
+        const request = JSON.parse(options.body);
+        return new Response(JSON.stringify({
+          protocol: 'mcp-android-lan-channel', version: 1, nonce: request.nonce, session,
+          proof: helloProof('a'.repeat(64), request.nonce, session),
+        }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
       dispatched.push(url.hostname);
       if (url.hostname === '192.168.1.84' && !lanAlive) throw new TypeError('fetch failed');
+      if (url.hostname === '192.168.1.84') {
+        const request = decryptRequest('a'.repeat(64), session, JSON.parse(options.body));
+        return new Response(JSON.stringify(encryptResponse('a'.repeat(64), session,
+          { result: { transport: url.hostname, request } })), {
+          status: 200,
+          headers: { 'content-type': 'application/mcp-android-lan+json' },
+        });
+      }
       return new Response(JSON.stringify({ result: { transport: url.hostname } }), {
         status: 200,
         headers: { 'content-type': 'application/json' },
@@ -134,7 +151,7 @@ test('LAN transport failure invalidates recent cache so the next RPC falls back 
   assert.equal((await client.call('status')).transport, '100.100.1.2');
   assert.equal(dispatched.filter(host => host === '192.168.1.84').length, 2);
   assert.equal(dispatched.filter(host => host === '100.100.1.2').length, 1);
-  assert.ok(probes.filter(url => url.includes('192.168.1.84')).length >= 2);
+  assert.equal(probes.filter(url => url.includes('192.168.1.84')).length, 1);
 });
 
 test('LAN miss is negatively cached briefly and configured LAN is retried later', async () => {

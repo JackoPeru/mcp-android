@@ -35,4 +35,12 @@ public final class HttpBoundaryTest {
         assertThrows(McpHttpServer.HttpException.class, () -> McpHttpServer.readBody(input("{"), 2));
         assertArrayEquals("{}".getBytes(StandardCharsets.US_ASCII), McpHttpServer.readBody(input("{}extra"), 2));
     }
+    @Test public void onlyLanEndpointUsesEncryptedWireEnvelope() {
+        TransportEndpoint lan = new TransportEndpoint("lan", "192.168.1.84", 8765, 24);
+        TransportEndpoint tailscale = new TransportEndpoint("tailscale", "100.100.1.2", 8765, 10);
+        assertTrue(McpHttpServer.secureLanEndpoint(lan));
+        assertFalse(McpHttpServer.secureLanEndpoint(tailscale));
+        assertTrue(McpHttpServer.maxWireRequestBytes(lan) > SecurityValidators.MAX_JSON_BYTES);
+        assertEquals(SecurityValidators.MAX_JSON_BYTES, McpHttpServer.maxWireRequestBytes(tailscale));
+    }
 }
