@@ -173,8 +173,8 @@ Questi punti richiedono collaudo end-to-end sul telefono.
 - minSdk: **30**.
 - targetSdk: **35**.
 - APK: `dist/mcp-android-0.8.0-debug.apk`.
-- Dimensione: **2,983,235 byte**.
-- SHA-256: `7ddb71497145d54c53c2c4d263b41124895c0da42565c0cf45f344859c33fb6a`.
+- Dimensione: **2,984,239 byte**.
+- SHA-256: `39876ca0699f09e7fd71713d5a6eef15f13a0ba701bc1639e3ad8c7a1be68a77`.
 - APK Signature Scheme v2: **valida**.
 - Signer: **1**.
 - Chiave: RSA 2048, Android Debug.
