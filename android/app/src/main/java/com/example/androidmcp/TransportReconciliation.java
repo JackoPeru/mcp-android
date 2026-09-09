@@ -36,4 +36,8 @@ public final class TransportReconciliation {
         return new Plan(startLan, stopLan, restartLan,
                 startTailscale, stopTailscale, restartTailscale);
     }
+
+    public static boolean shouldStartLanDiscovery(TransportEndpoint activeLan, boolean discoveryRunning) {
+        return activeLan != null && !discoveryRunning;
+    }
 }

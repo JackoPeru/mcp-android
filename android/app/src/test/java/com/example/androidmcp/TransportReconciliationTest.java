@@ -50,4 +50,11 @@ public final class TransportReconciliationTest {
         assertTrue(plan.restartLan);
         assertTrue(plan.restartTailscale);
     }
+
+    @Test public void discoveryRetriesOnlyWhenLanRpcExistsAndResponderIsDown() {
+        TransportEndpoint activeLan = lan("192.168.1.5", 24);
+        assertTrue(TransportReconciliation.shouldStartLanDiscovery(activeLan, false));
+        assertFalse(TransportReconciliation.shouldStartLanDiscovery(activeLan, true));
+        assertFalse(TransportReconciliation.shouldStartLanDiscovery(null, false));
+    }
 }

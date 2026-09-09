@@ -88,3 +88,51 @@ test('recently validated LAN cache avoids a status probe before every RPC', asyn
   assert.equal((await resolver.resolve()).transport, 'lan');
   assert.equal(probes, 2);
 });
+
+test('LAN transport failure invalidates recent cache so the next RPC falls back to Tailscale', async () => {
+  let now = 1_000;
+  let lanAlive = true;
+  const probes = [];
+  const resolver = new TransportResolver({
+    preference: 'auto',
+    lanUrl: 'http://192.168.1.84:8765/',
+    tailscaleUrl: 'http://100.100.1.2:8765/',
+    discovery: false,
+  }, {
+    discover: async () => [],
+    probe: async url => {
+      probes.push(url);
+      if (url.includes('192.168.1.84') && !lanAlive) {
+        throw Object.assign(new Error('unreachable'), { kind: 'unreachable' });
+      }
+      return true;
+    },
+    now: () => now,
+    validationTtlMs: 5_000,
+  });
+
+  const dispatched = [];
+  const client = new AndroidClient({
+    token: 'a'.repeat(64),
+    resolver,
+    fetchImpl: async url => {
+      dispatched.push(url.hostname);
+      if (url.hostname === '192.168.1.84' && !lanAlive) throw new TypeError('fetch failed');
+      return new Response(JSON.stringify({ result: { transport: url.hostname } }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    },
+  });
+
+  assert.equal((await client.call('status')).transport, '192.168.1.84');
+  lanAlive = false;
+  now += 1_000;
+  await assert.rejects(client.call('tap', { x: 10, y: 10 }), /outcome unknown|disconnected/i);
+  assert.equal(dispatched.filter(host => host === '192.168.1.84').length, 2);
+
+  assert.equal((await client.call('status')).transport, '100.100.1.2');
+  assert.equal(dispatched.filter(host => host === '192.168.1.84').length, 2);
+  assert.equal(dispatched.filter(host => host === '100.100.1.2').length, 1);
+  assert.ok(probes.filter(url => url.includes('192.168.1.84')).length >= 2);
+});

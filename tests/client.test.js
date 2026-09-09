@@ -50,14 +50,15 @@ test('real HTTP boundary: auth, result, error, redirect, bounded body and timeou
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
   t.after(() => { server.closeAllConnections(); server.close(); });
   // Loopback is a test fixture passed directly to the transport, never accepted by env config.
-  const client = new AndroidClient({ url: `http://127.0.0.1:${server.address().port}/`, token, timeoutMs: 100, maxResponseBytes: 1024 });
+  const client = new AndroidClient({ url: `http://127.0.0.1:${server.address().port}/`, token, timeoutMs: 500, maxResponseBytes: 1024 });
   assert.deepEqual(await client.call('file_list', { rootId: 'root', path: 'docs' }), { method: 'file_list', params: { rootId: 'root', path: 'docs' } });
   await assert.rejects(client.call('bad', {}), /INVALID_ARGUMENT/);
   await assert.rejects(client.call('revoked', {}), /ROOT_REVOKED/);
   await assert.rejects(client.call('redirect', {}), /HTTP 302/);
   assert.equal(redirected, false);
   await assert.rejects(client.call('large', {}), /too large/);
-  await assert.rejects(client.call('slow', {}), /timeout|timed out/i);
+  const slowClient = new AndroidClient({ url: client.url, token, timeoutMs: 50, maxResponseBytes: 1024 });
+  await assert.rejects(slowClient.call('slow', {}), /timeout|timed out/i);
   const wrong = new AndroidClient({ url: client.url, token: 'b'.repeat(64) });
   await assert.rejects(wrong.call('status', {}), /HTTP 401/);
 });

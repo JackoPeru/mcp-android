@@ -11,7 +11,7 @@ App Android + server MCP per usare il proprio telefono da un agente: loop semant
 - Termux >= 0.109 solo se si vuole usare android_shell; il permesso Run commands in Termux environment resta separato e deve essere concesso dall'utente.
 - Shizuku 11+ solo se si vuole usare android_shizuku_shell. Su Android 11+ Shizuku può essere avviato tramite Wireless debugging; se viene avviato come shell il comando gira come UID 2000, se l'utente lo avvia esplicitamente con root gira come UID 0.
 
-La v0.8.0 offre **due trasporti indipendenti** sulla stessa API autenticata:
+La v0.8.1 offre **due trasporti indipendenti** sulla stessa API autenticata e include l'hardening del failover/discovery introdotto dopo l'audit v0.8.0:
 
 - **LAN Wi-Fi**, preferita automaticamente quando telefono e agente sono sulla stessa rete privata RFC1918 (`10/8`, `172.16/12`, `192.168/16`);
 - **Tailscale**, usata come fallback remoto tramite IPv4 `100.64.0.0/10`.
@@ -20,7 +20,7 @@ Il server non ascolta mai su `0.0.0.0` o `::`: crea listener soltanto sugli indi
 
 ## Installazione senza cavo
 
-APK disponibile: **`dist/mcp-android-0.8.0-debug.apk`**, con SHA-256 nel file accanto. È una build debug firmata per installazione personale, non una release Play Store.
+APK disponibile: **`dist/mcp-android-0.8.1-debug.apk`**, con SHA-256 nel file accanto. È una build debug firmata per installazione personale, non una release Play Store.
 
 1. Trasferisci l'APK al telefono, ad esempio con Tailscale Taildrop o il tuo servizio file, e aprilo dal telefono. Autorizza l'installazione per l'app da cui lo apri.
 2. Apri MCP Android e abilita il servizio Accessibilità nelle impostazioni Android. Per APK installati esternamente, Android può richiedere prima **Consenti impostazioni con restrizioni** nelle informazioni dell'app.
@@ -61,7 +61,9 @@ In `auto`, il bridge prova prima l'endpoint LAN già noto; se non risponde, eseg
 
 La discovery è opzionale: se UDP 8766 non è disponibile sul telefono o sulla rete, il listener TCP LAN 8765 continua a funzionare e può essere usato specificando `ANDROID_MCP_LAN_URL`.
 
-Un errore dopo l'invio di una RPC mutante non provoca il replay automatico sulla seconda rete: l'esito viene considerato incerto, mantenendo la regola di sicurezza già usata per gesture e shell.
+La risposta discovery viene accettata solo se l'IP dichiarato nel payload coincide con l'IP sorgente UDP ed è dentro una delle subnet locali interrogate. Un host LAN non può quindi far accettare un endpoint RFC1918 arbitrario soltanto copiando il nonce.
+
+Un errore dopo l'invio di una RPC mutante non provoca il replay automatico sulla seconda rete: l'esito viene considerato incerto. Se il trasporto LAN cade, la cache LAN viene però invalidata immediatamente; **la chiamata successiva** rivalida la LAN e, se non è raggiungibile, usa Tailscale.
 
 ## Aggiornamenti
 
@@ -162,7 +164,7 @@ Le operazioni concorrenti sono separate per dominio: filesystem, UI e shell hann
 
 ## Consumo batteria
 
-La v0.8.0 conserva la modalità ultra-low-power della v0.7.2 e rende anche il dual transport event-driven:
+La v0.8.1 conserva la modalità ultra-low-power della v0.7.2 e il dual transport event-driven:
 
 - il server HTTP resta bloccato su `accept()` quando non arrivano richieste, quindi non esegue polling;
 - il pool RPC mantiene **0 worker permanenti** a riposo e crea thread solo quando arriva una richiesta;
@@ -171,6 +173,7 @@ La v0.8.0 conserva la modalità ultra-low-power della v0.7.2 e rende anche il du
 - in casa con Tailscale spento resta un solo listener TCP LAN bloccato su `accept()` e un responder UDP bloccato su `receive()`, entrambi senza loop di polling;
 - se LAN e Tailscale sono entrambi disponibili esistono due listener TCP indipendenti, sempre bloccati in attesa quando inattivi;
 - la discovery LAN non usa mDNS né multicast lock e risponde soltanto a datagrammi ricevuti sulla subnet locale;
+- se il responder UDP 8766 non riesce ad avviarsi, il listener TCP LAN resta attivo; solo la discovery viene ritentata alle riconciliazioni successive;
 - quando premi **STOP**, Accessibility imposta `eventTypes=0`: il permesso resta concesso ma MCP non chiede più eventi UI; con Avvia ripristina solo il sottoinsieme necessario, mai `TYPES_ALL_MASK`;
 - quando premi **STOP**, il Notification Listener esegue `requestUnbind()`; all'Avvia viene richiesto il rebind solo se Android ha già il permesso;
 - callback Wi-Fi/VPN, listener TCP, discovery UDP e watchdog vengono unregisterati/chiusi immediatamente allo STOP;
