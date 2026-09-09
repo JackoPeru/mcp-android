@@ -18,6 +18,7 @@
   - teardown completo mentre STOP.
 - Discovery LAN:
   - UDP 8766;
+  - socket di ricezione wildcard IPv4 vincolato alla `Network` Wi-Fi selezionata; nessun wildcard TCP RPC;
   - massimo 512 byte;
   - protocollo/versione/nonce strettamente validati;
   - risposta unicast;
@@ -36,7 +37,7 @@
   - handshake `/hello` senza bearer con nonce casuale, sessione casuale e prova HMAC del server;
   - RPC LAN cifrate/autenticate AES-256-GCM con chiavi distinte request/response derivate da token + sessione;
   - bearer, metodo, params, risultati ed errori RPC non vengono trasmessi in chiaro sulla LAN;
-  - replay guard bounded su nonce di richieste già autenticate;
+  - replay guard bounded non-evicting su nonce di richieste già autenticate; a capacità esaurita la sessione viene ruotata al successivo `/hello`;
   - Tailscale fallback;
   - cache LAN validata con TTL breve per evitare una RPC `status` prima di ogni operazione;
   - errore di trasporto LAN invalida immediatamente il TTL della cache, così la chiamata successiva rivalida/fallbacka;
@@ -130,7 +131,7 @@ Questi punti richiedono collaudo end-to-end sul telefono.
 - Node: v24.19.0.
 - `npm.cmd run check`:
   - coerenza versione: OK;
-  - **28 test Node, tutti passati**.
+  - **33 test Node, tutti passati**.
 - `npm audit --omit=dev`: **0 vulnerabilità**.
 - Test Node v0.8.2 includono:
   - config Tailscale legacy;
@@ -158,7 +159,7 @@ Questi punti richiedono collaudo end-to-end sul telefono.
   - UI dual transport;
   - discovery dei 65 tool MCP tramite stdio.
 - `build-android.ps1`: assembleDebug + testDebugUnitTest + lintDebug completati.
-- Android/JVM: **77 test, 0 failure, 0 error, 0 skipped**:
+- Android/JVM: **80 test, 0 failure, 0 error, 0 skipped**:
   - ActionRegistryTest: 2
   - ApkIdentityValidationTest: 4
   - CapabilityRouterTest: 3
@@ -169,14 +170,14 @@ Questi punti richiedono collaudo end-to-end sul telefono.
   - IdleExecutorPolicyTest: 3
   - LanDiscoveryProtocolTest: 3
   - LanDiscoveryRateLimitTest: 3
-  - LanSecureChannelTest: 3
-  - LowPowerSessionPolicyTest: 3
+  - LanSecureChannelTest: 4
+  - LowPowerSessionPolicyTest: 4
   - NetworkAddressPolicyTest: 4
   - NetworkRecoveryPolicyTest: 3
   - RequestScopeTest: 3
   - RpcEndpointServerPolicyTest: 3
   - RpcPolicyTest: 2
-  - ScreenSnapshotStoreTest: 3
+  - ScreenSnapshotStoreTest: 4
   - SecurityValidatorsTest: 5
   - TraceJournalTest: 2
   - TransportDiagnosticsTest: 4
@@ -184,8 +185,9 @@ Questi punti richiedono collaudo end-to-end sul telefono.
   - UiLoopPolicyTest: 2
   - UpdateValidationTest: 2
   - VersioningTest: 2
-- Lint: **0 errori, 1 warning**:
-  - targetSdk 35 non è l'ultimo SDK disponibile nell'ambiente.
+- Lint: **0 errori, 13 warning**:
+  - targetSdk 35 non è l'ultimo SDK disponibile nell'ambiente;
+  - 12 stringhe legacy risultano ora inutilizzate dopo il redesign della UI.
 
 ## APK
 
@@ -195,8 +197,8 @@ Questi punti richiedono collaudo end-to-end sul telefono.
 - minSdk: **30**.
 - targetSdk: **35**.
 - APK: `dist/mcp-android-0.8.2-debug.apk`.
-- Dimensione: **2,742,975 byte**.
-- SHA-256: `77d8aa9c6b92b8d978cfc91bbc1959575b4f7dcb84fc64d1eedb2149e701b089`.
+- Dimensione: **3,035,807 byte**.
+- SHA-256: `a42cee3a06558f847e4c85f068597bdd6464c83f2c602a4c82505cf6282f3ff8`.
 - APK Signature Scheme v2: **valida**.
 - Signer: **1**.
 - Chiave: RSA 2048, Android Debug.
@@ -217,7 +219,7 @@ Questi punti richiedono collaudo end-to-end sul telefono.
   - `/hello` non contiene bearer; il server dimostra il possesso del token con HMAC-SHA256 su nonce + sessione;
   - chiavi AES-256-GCM derivate via HMAC-SHA256 da token + sessione + direzione;
   - request e response usano chiavi distinte;
-  - nonce GCM casuale a 96 bit e replay guard bounded su richieste già autenticate;
+  - nonce GCM casuale a 96 bit; replay guard bounded non-evicting e rotazione sessione/chiavi quando la capacità viene esaurita;
   - HTTP è solo framing: bearer, RPC e contenuti non transitano in plaintext;
   - risposta non autenticabile dopo l'invio è sempre `outcome_unknown`, mai replay automatico.
 - Tailscale RPC:

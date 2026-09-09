@@ -1,218 +1,442 @@
 package com.example.androidmcp;
 
 import android.Manifest;
+import android.accessibilityservice.AccessibilityServiceInfo;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.NotificationManager;
+import android.content.ComponentName;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.Typeface;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.provider.Settings;
+import android.view.Gravity;
 import android.view.View;
+import android.view.WindowInsets;
 import android.view.WindowManager;
+import android.view.accessibility.AccessibilityManager;
+import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.Button;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
-
 import org.json.JSONObject;
 
+/** UI only: every control delegates to the existing permission and runtime APIs. */
 public final class MainActivity extends Activity {
+    private UiKit ui;
     private FileRootStore roots;
-    private TextView status;
-    private TextView updateStatus;
-    private LinearLayout rootList;
+    private final Handler handler = new Handler(android.os.Looper.getMainLooper());
+    private final ScrollView[] pages = new ScrollView[3];
+    private final LinearLayout[] tabs = new LinearLayout[3];
+    private final TextView[] tabLabels = new TextView[3];
+    private final FrameLayout[] tabIcons = new FrameLayout[3];
+    private final String[] tabNames = {"Panoramica", "Accessi", "Impostazioni"};
+    private final String[] tabSymbols = {"home", "shield", "settings"};
+    private int selectedTab;
+    private boolean advancedExpanded, startAfterPermission, accessibilityAllowed, notificationsAllowed;
+    private int rootCount;
+    private TextView heroBadge, heroTitle, heroDescription, errorMessage, lanValue, tailscaleValue;
+    private TextView preferredLabel, accessibilityBadge, notificationBadge, folderBadge, updateStatus;
+    private TextView setupDescription, advancedLabel;
+    private Button sessionButton, setupButton;
+    private LinearLayout rootList, advancedBody;
+    private String transportDetails = "";
+
     private final UpdateManager.Callback updateCallback = new UpdateManager.Callback() {
-        @Override public void onState(String message) {
-            if (updateStatus != null) updateStatus.setText(message);
-        }
-        @Override public void onNoUpdate(String currentVersion) {
-            if (updateStatus != null) {
-                updateStatus.setText(getString(R.string.update_current, currentVersion));
-            }
-        }
+        @Override public void onState(String message) { setUpdateStatus(message); }
+        @Override public void onNoUpdate(String version) { setUpdateStatus("Sei aggiornato alla versione " + version + "."); }
         @Override public void onUpdateAvailable(UpdateManager.Release release) {
-            if (updateStatus != null) {
-                updateStatus.setText(getString(R.string.update_available, release.version));
-            }
+            setUpdateStatus("Disponibile la versione " + release.version + ".");
             showUpdateDialog(release);
         }
-        @Override public void onError(String message) {
-            if (updateStatus != null) updateStatus.setText(getString(R.string.update_error, message));
-        }
+        @Override public void onError(String message) { setUpdateStatus(getString(R.string.update_error, message)); }
     };
-    private final Handler handler = new Handler(android.os.Looper.getMainLooper());
     private final Runnable refreshStatus = new Runnable() {
         @Override public void run() {
-            JSONObject transport = McpForegroundService.transportStatus();
-            JSONObject endpoints = transport.optJSONObject("endpoints");
-            JSONObject lan = endpoints == null ? null : endpoints.optJSONObject("lan");
-            JSONObject tailscale = endpoints == null ? null : endpoints.optJSONObject("tailscale");
-            String lanStatus = lan != null && lan.optBoolean("available", false)
-                    ? lan.optString("address", "") + ":" + lan.optInt("port", McpHttpServer.PORT)
-                    : getString(R.string.endpoint_unavailable);
-            String tailscaleStatus = tailscale != null && tailscale.optBoolean("available", false)
-                    ? tailscale.optString("address", "") + ":" + tailscale.optInt("port", McpHttpServer.PORT)
-                    : getString(R.string.endpoint_unavailable);
-            String preferred = transport.optString("preferredTransport", "none");
-            if ("lan".equals(preferred)) preferred = getString(R.string.preferred_lan);
-            else if ("tailscale".equals(preferred)) preferred = getString(R.string.preferred_tailscale);
-            else preferred = getString(R.string.preferred_none);
-            String remote = getString(McpForegroundService.sessionEnabled()
-                    ? R.string.remote_control_active : R.string.remote_control_waiting);
-            String accessibility = getString(R.string.accessibility_state,
-                    getString(McpAccessibilityService.active() == null
-                            ? R.string.accessibility_off : R.string.accessibility_on));
-            String error = McpForegroundService.error();
-            String errorSuffix = error.isEmpty() ? "" : getString(R.string.transport_status_error, error);
-            status.setText(getString(R.string.transport_status,
-                    remote, lanStatus, tailscaleStatus, preferred, accessibility, errorSuffix));
+            renderStatus();
             handler.postDelayed(this, 1000);
         }
     };
 
     @Override public void onCreate(Bundle state) {
+        setTheme(R.style.ui_app_theme);
         super.onCreate(state);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
+        getWindow().getDecorView().setSystemUiVisibility(0);
+        ui = new UiKit(this);
         roots = new FileRootStore(this);
-        ScrollView scroll = new ScrollView(this);
-        LinearLayout layout = new LinearLayout(this);
-        layout.setOrientation(LinearLayout.VERTICAL);
-        int padding = (int) (20 * getResources().getDisplayMetrics().density);
-        layout.setPadding(padding, padding, padding, padding);
-        scroll.addView(layout); setContentView(scroll);
-        scroll.setOnApplyWindowInsetsListener((view, insets) -> {
-            android.graphics.Insets bars = insets.getInsets(android.view.WindowInsets.Type.systemBars() | android.view.WindowInsets.Type.displayCutout());
-            layout.setPadding(padding + bars.left, padding + bars.top, padding + bars.right, padding + bars.bottom);
+        selectedTab = state == null ? 0 : Math.max(0, Math.min(2, state.getInt("ui.tab", 0)));
+        advancedExpanded = state != null && state.getBoolean("ui.advanced", false);
+        startAfterPermission = state != null && state.getBoolean("ui.pendingStart", false);
+        LinearLayout shell = ui.column(); shell.setBackgroundColor(UiKit.BG);
+        setContentView(shell);
+        shell.setOnApplyWindowInsetsListener((view, insets) -> {
+            android.graphics.Insets bars = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+            shell.setPadding(bars.left, bars.top, bars.right, bars.bottom);
             return insets;
         });
-        text(layout, "MCP Android", 28);
-        text(layout, "Controllo del tuo telefono via Wi-Fi locale o Tailscale. In casa l'agente preferisce la LAN; fuori casa può usare Tailscale. Il token resta obbligatorio su entrambi i trasporti. Avvia soltanto quando vuoi consentire l'accesso.", 16);
-        text(layout, "Versione installata: " + installedVersion(), 15);
-        status = text(layout, "", 16);
-        updateStatus = text(layout, "Aggiornamenti: controllo automatico giornaliero.", 14);
-        button(layout, "Controlla aggiornamenti", () -> UpdateManager.check(this, true, updateCallback));
-        button(layout, "1. Abilita Accessibilità", () -> startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)));
-        button(layout, "Accesso notifiche (opzionale)", () -> startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)));
-        button(layout, "Abilita shell Termux (opzionale)", () -> {
+        shell.addView(topBar(), new LinearLayout.LayoutParams(-1, -2));
+        FrameLayout content = new FrameLayout(this);
+        shell.addView(content, new LinearLayout.LayoutParams(-1, 0, 1));
+        LinearLayout overview = page(content, 0, R.id.ui_overview_scroll);
+        LinearLayout access = page(content, 1, R.id.ui_access_scroll);
+        LinearLayout settings = page(content, 2, R.id.ui_settings_scroll);
+        buildOverview(overview); buildAccess(access); buildSettings(settings);
+        shell.addView(bottomBar(), new LinearLayout.LayoutParams(-1, -2));
+        showTab(selectedTab);
+    }
+
+    private View topBar() {
+        LinearLayout bar = ui.row(); bar.setPadding(ui.dp(22), ui.dp(14), ui.dp(22), ui.dp(12));
+        FrameLayout mark = new FrameLayout(this); mark.setBackground(ui.shape(UiKit.SOFT, 0, 14));
+        mark.addView(ui.icon("phone", UiKit.ACCENT, 24), new FrameLayout.LayoutParams(ui.dp(24), ui.dp(24), Gravity.CENTER));
+        bar.addView(mark, new LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)));
+        LinearLayout title = ui.column();
+        title.addView(ui.text("MCP Android", 18, UiKit.TEXT, true));
+        TextView caption = ui.text("IL TUO CONTROLLO, OVUNQUE", 10, UiKit.MUTED, true); caption.setLetterSpacing(.06f);
+        ui.add(title, caption, 5);
+        LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(0, -2, 1); titleParams.leftMargin = ui.dp(12);
+        bar.addView(title, titleParams);
+        TextView version = ui.badge("v" + installedVersion()); version.setTextColor(UiKit.MUTED); version.setBackground(ui.shape(UiKit.CARD, UiKit.BORDER, 10));
+        bar.addView(version, new LinearLayout.LayoutParams(-2, -2));
+        return bar;
+    }
+
+    private LinearLayout page(FrameLayout parent, int index, int id) {
+        ScrollView scroll = new ScrollView(this); scroll.setId(id);
+        scroll.setFillViewport(true); scroll.setClipToPadding(false); scroll.setVerticalScrollBarEnabled(false);
+        FrameLayout centering = new FrameLayout(this);
+        LinearLayout body = ui.column(); body.setPadding(0, ui.dp(10), 0, ui.dp(24));
+        centering.addView(body, new FrameLayout.LayoutParams(-1, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL));
+        centering.addOnLayoutChangeListener((view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
+            int width = Math.max(1, Math.min(ui.dp(640), right - left - ui.dp(40)));
+            if (body.getLayoutParams().width != width) {
+                FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) body.getLayoutParams();
+                params.width = width; body.setLayoutParams(params);
+            }
+        });
+        scroll.addView(centering, new ScrollView.LayoutParams(-1, -2));
+        parent.addView(scroll, new FrameLayout.LayoutParams(-1, -1)); pages[index] = scroll;
+        return body;
+    }
+
+    private void buildOverview(LinearLayout body) {
+        LinearLayout hero = ui.card(body);
+        hero.setBackground(new android.graphics.drawable.GradientDrawable(
+                android.graphics.drawable.GradientDrawable.Orientation.TL_BR, new int[]{0xff19372f, UiKit.CARD}));
+        ((android.graphics.drawable.GradientDrawable)hero.getBackground()).setCornerRadius(ui.dp(28));
+        ((android.graphics.drawable.GradientDrawable)hero.getBackground()).setStroke(ui.dp(1), 0xff315248);
+        LinearLayout top = ui.row();
+        heroBadge = ui.badge("SESSIONE SPENTA");
+        top.addView(heroBadge, new LinearLayout.LayoutParams(-2, -2));
+        View space = new View(this); top.addView(space, new LinearLayout.LayoutParams(0, 1, 1));
+        top.addView(ui.icon("shield", UiKit.ACCENT, 28), new LinearLayout.LayoutParams(ui.dp(28), ui.dp(28)));
+        hero.addView(top);
+        heroTitle = ui.text("Pronto quando\nlo sei tu.", 34, UiKit.TEXT, true);
+        heroTitle.setLetterSpacing(-.025f); ui.add(hero, heroTitle, 23);
+        heroDescription = ui.text("Scegli cosa condividere, poi apri una sessione per il tuo agente.", 15, 0xffc0d4cf, false);
+        ui.add(hero, heroDescription, 14);
+        sessionButton = ui.button("Avvia controllo remoto", true, () -> safely(() -> {
+            if (McpForegroundService.sessionEnabled()) { McpForegroundService.stopNow(); renderStatus(); }
+            else startRemoteControl();
+        }));
+        ui.add(hero, sessionButton, 22);
+        TextView note = ui.text("Decidi tu quando iniziare e quando fermarti.", 12, UiKit.MUTED, false);
+        note.setGravity(Gravity.CENTER); ui.add(hero, note, 12);
+        errorMessage = ui.text("", 14, UiKit.DANGER, false);
+        errorMessage.setPadding(ui.dp(16), ui.dp(14), ui.dp(16), ui.dp(14));
+        errorMessage.setBackground(ui.shape(UiKit.DANGER_BG, 0, 16)); errorMessage.setVisibility(View.GONE);
+        ui.add(body, errorMessage, 14);
+        section(body, "Le tue connessioni", "Due modi per raggiungere il telefono.");
+        LinearLayout lan = ui.card(body);
+        ui.heading(lan, "wifi", "Wi-Fi locale", "Per il tuo agente nella stessa rete.");
+        lanValue = ui.text("Non disponibile", 14, UiKit.MUTED, true); ui.add(lan, lanValue, 15);
+        LinearLayout remote = ui.card(body);
+        ui.heading(remote, "remote", "Tailscale", "Per accedere anche quando sei fuori casa.");
+        tailscaleValue = ui.text("Non disponibile", 14, UiKit.MUTED, true); ui.add(remote, tailscaleValue, 15);
+        preferredLabel = ui.text("Nessuna connessione disponibile", 13, UiKit.MUTED, false); ui.add(body, preferredLabel, 14);
+        ui.add(body, ui.button("Dettagli connessione", false, () -> dialog("Stato connessioni", transportDetails)), 12);
+        LinearLayout setup = ui.card(body);
+        ui.heading(setup, "shield", "Fallo tuo", "Abilita solo gli accessi che ti servono.");
+        setupDescription = ui.text("", 14, UiKit.MUTED, false); ui.add(setup, setupDescription, 14);
+        setupButton = ui.button("Configura gli accessi", false, () -> showTab(1)); ui.add(setup, setupButton, 14);
+    }
+
+    private void buildAccess(LinearLayout body) {
+        pageHeading(body, "I tuoi accessi", "Il telefono resta tuo.\nScegli cosa può usare l'agente.");
+        LinearLayout screen = ui.card(body);
+        ui.heading(screen, "phone", "Schermo e gesti", "Consenti all'agente di leggere lo schermo, toccare, scorrere e scrivere.");
+        accessibilityBadge = ui.badge("Da autorizzare"); ui.add(screen, accessibilityBadge, 14);
+        ui.add(screen, ui.button("Gestisci Accessibilità", false, () -> openSettings(Settings.ACTION_ACCESSIBILITY_SETTINGS)), 14);
+        LinearLayout notifications = ui.card(body);
+        ui.heading(notifications, "bell", "Notifiche e media", "Accesso opzionale alle notifiche e ai controlli di riproduzione.");
+        notificationBadge = ui.badge("Opzionale"); ui.add(notifications, notificationBadge, 14);
+        ui.add(notifications, ui.button("Gestisci notifiche", false, () -> openSettings(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)), 14);
+        section(body, "File condivisi", "Accesso diretto ai file, senza aprire un file manager.");
+        folderBadge = ui.text("Nessuna cartella autorizzata", 13, UiKit.MUTED, false); ui.add(body, folderBadge, 12);
+        rootList = ui.column(); body.addView(rootList);
+        ui.add(body, ui.button("Aggiungi una cartella", true, this::chooseFolder), 14);
+        ui.add(body, ui.text("Android ti farà scegliere una cartella. L'agente potrà usare solo gli accessi concessi dal sistema.", 13, UiKit.MUTED, false), 12);
+        LinearLayout advanced = ui.card(body);
+        LinearLayout header = ui.row();
+        header.addView(ui.icon("terminal", UiKit.MUTED, 24), new LinearLayout.LayoutParams(ui.dp(24), ui.dp(24)));
+        advancedLabel = ui.text("Strumenti avanzati  +", 16, UiKit.TEXT, true);
+        LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(0, -2, 1); textParams.leftMargin = ui.dp(12); header.addView(advancedLabel, textParams);
+        header.setMinimumHeight(ui.dp(48)); header.setFocusable(true); header.setBackground(ui.ripple(UiKit.CARD, 0, 12));
+        header.setOnClickListener(v -> { advancedExpanded = !advancedExpanded; renderAdvanced(); });
+        buttonSemantics(header); advanced.addView(header);
+        advancedBody = ui.column(); advanced.addView(advancedBody);
+        ui.add(advancedBody, ui.text("Shell opzionali, con permessi separati. Non sono necessarie per schermo e file.", 14, UiKit.MUTED, false), 14);
+        ui.add(advancedBody, ui.button("Autorizza Termux", false, () -> safely(() -> {
             String permission = "com.termux.permission.RUN_COMMAND";
-            if (checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED) {
-                Toast.makeText(this, "Permesso Termux già concesso.", Toast.LENGTH_SHORT).show();
-            } else {
-                requestPermissions(new String[]{permission}, 40);
-            }
-        });
-        button(layout, "Abilita Shizuku (opzionale)", () -> {
-            try {
-                boolean alreadyGranted = ShizukuBridge.requestPermission(this);
-                Toast.makeText(this,
-                        alreadyGranted ? "Permesso Shizuku già concesso." : "Richiesta inviata a Shizuku.",
-                        Toast.LENGTH_LONG).show();
-            } catch (ApiException e) {
-                Toast.makeText(this, e.code, Toast.LENGTH_LONG).show();
-            }
-        });
-        button(layout, "2. Autorizza una cartella", () -> startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
-            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION), 20));
-        button(layout, "3. Mostra token per configurare l'agente", this::showToken);
-        button(layout, "4. Avvia controllo remoto", () -> {
-            if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 30);
-                return;
-            }
-            startForegroundService(new Intent(this, McpForegroundService.class).setAction("START"));
-        });
-        button(layout, "STOP controllo remoto", McpForegroundService::stopNow);
-        button(layout, "Revoca token e genera nuovo", () -> {
-            McpForegroundService.stopNow(); SecretStore.rotate(this);
-            Toast.makeText(this, "Servizio fermato. Configura il nuovo token nell'agente.", Toast.LENGTH_LONG).show();
-        });
-        text(layout, "Cartelle autorizzate", 20);
-        rootList = new LinearLayout(this); rootList.setOrientation(LinearLayout.VERTICAL); layout.addView(rootList);
-        text(layout, "File via API: nessuna navigazione UI dopo la scelta iniziale. Android limita radice memoria, Download intera, Android/data e dati privati delle altre app. Nessun bypass del blocco schermo. Dopo un riavvio avvia nuovamente il servizio.", 15);
-        text(layout, "Shell opzionali: Termux usa il proprio ambiente utente; Shizuku usa UID shell o root solo se lo hai avviato esplicitamente così. I due backend hanno permessi separati e non vengono mai scelti automaticamente uno al posto dell'altro.", 15);
-        button(layout, "Impostazioni app / batteria", () -> startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName()))));
+            if (checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED) toast("Permesso Termux già concesso.");
+            else requestPermissions(new String[]{permission}, 40);
+        })), 14);
+        ui.add(advancedBody, ui.text("Usa l'ambiente utente di Termux, che deve essere installato.", 13, UiKit.MUTED, false), 8);
+        ui.add(advancedBody, ui.button("Autorizza Shizuku", false, () -> {
+            try { toast(ShizukuBridge.requestPermission(this) ? "Permesso Shizuku già concesso." : "Richiesta inviata a Shizuku."); }
+            catch (ApiException e) { dialog("Shizuku non disponibile", "Avvia Shizuku e verifica i suoi permessi.\n\nDettaglio: " + e.code); }
+        }), 14);
+        ui.add(advancedBody, ui.text("Usa la modalità shell o root scelta in Shizuku. Nessun passaggio automatico tra backend.", 13, UiKit.MUTED, false), 8);
+        renderAdvanced();
     }
 
-    private void showUpdateDialog(UpdateManager.Release release) {
-        if (isFinishing() || isDestroyed()) return;
-        StringBuilder message = new StringBuilder()
-                .append("Versione installata: ").append(installedVersion())
-                .append("\nNuova versione: ").append(release.version)
-                .append("\n\nL'APK verrà scaricato da GitHub Releases, verificato con SHA-256 e poi passato all'installer Android.");
-        if (release.notes != null && !release.notes.trim().isEmpty()) {
-            String notes = release.notes.trim();
-            if (notes.length() > 1200) notes = notes.substring(0, 1200) + "…";
-            message.append("\n\nNote:\n").append(notes);
+    private void buildSettings(LinearLayout body) {
+        pageHeading(body, "Tutto al suo posto", "Collega il tuo agente e mantieni\nl'app pronta per quando serve.");
+        LinearLayout pairing = ui.card(body);
+        ui.heading(pairing, "key", "Collega il tuo agente", "Il token è la chiave di accesso al telefono. Inseriscilo soltanto nella configurazione privata del tuo agente.");
+        ui.add(pairing, ui.button("Mostra token di accesso", true, () -> safely(this::showToken)), 18);
+        ui.add(pairing, ui.text("Mostrare il token interrompe la sessione attiva.", 12, UiKit.MUTED, false), 10);
+        Button rotate = ui.button("Revoca e genera nuovo token", false, () -> new AlertDialog.Builder(this)
+                .setTitle("Sostituire il token?")
+                .setMessage("Il controllo remoto si fermerà. Gli agenti configurati con il vecchio token non potranno più accedere.")
+                .setNegativeButton("Annulla", null)
+                .setPositiveButton("Genera nuovo", (dialog, which) -> safely(() -> {
+                    McpForegroundService.stopNow(); SecretStore.rotate(this); renderStatus();
+                    toast("Token sostituito. Aggiorna la configurazione del tuo agente.");
+                })).show());
+        ui.paintButton(rotate, UiKit.RAISED, UiKit.DANGER); ui.add(pairing, rotate, 12);
+        LinearLayout updates = ui.card(body);
+        ui.heading(updates, "update", "Sempre aggiornato", "Versione installata " + installedVersion());
+        updateStatus = ui.text("Controllo automatico una volta al giorno.", 14, UiKit.MUTED, false); ui.add(updates, updateStatus, 14);
+        ui.add(updates, ui.button("Controlla aggiornamenti", false, () -> UpdateManager.check(this, true, updateCallback)), 16);
+        LinearLayout battery = ui.card(body);
+        ui.heading(battery, "settings", "Continuità in background", "Se Android sospende l'app, controlla le impostazioni della batteria per mantenerla disponibile durante una sessione.");
+        ui.add(battery, ui.button("Apri impostazioni app", false, () -> safely(() -> startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName()))))), 16);
+        LinearLayout boundaries = ui.card(body);
+        ui.heading(boundaries, "shield", "I limiti ti proteggono", "Nessun aggiramento di PIN, biometria o schermate protette. Android mantiene privati i dati delle altre app e limita le cartelle selezionabili.");
+        TextView footer = ui.text("MCP ANDROID  /  CONTROLLO PERSONALE", 10, UiKit.MUTED, true);
+        footer.setLetterSpacing(.08f); footer.setGravity(Gravity.CENTER); ui.add(body, footer, 24);
+    }
+
+    private View bottomBar() {
+        LinearLayout nav = ui.row(); nav.setPadding(ui.dp(14), ui.dp(8), ui.dp(14), ui.dp(10)); nav.setBackgroundColor(UiKit.BG);
+        for (int i = 0; i < 3; i++) {
+            final int index = i;
+            LinearLayout item = ui.column(); item.setGravity(Gravity.CENTER); item.setPadding(ui.dp(4), ui.dp(10), ui.dp(4), ui.dp(10)); item.setMinimumHeight(ui.dp(68));
+            item.setFocusable(true); item.setContentDescription(tabNames[i]); buttonSemantics(item);
+            tabIcons[i] = new FrameLayout(this); item.addView(tabIcons[i], new LinearLayout.LayoutParams(ui.dp(24), ui.dp(24)));
+            tabLabels[i] = ui.text(tabNames[i], 12, UiKit.MUTED, true); tabLabels[i].setGravity(Gravity.CENTER); tabLabels[i].setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            ui.add(item, tabLabels[i], 6); item.setOnClickListener(v -> showTab(index));
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, -2, 1); params.setMargins(ui.dp(3), 0, ui.dp(3), 0);
+            nav.addView(item, params); tabs[i] = item;
         }
-        new AlertDialog.Builder(this)
-                .setTitle("Aggiornamento v" + release.version)
-                .setMessage(message.toString())
-                .setPositiveButton("Aggiorna", (dialog, which) ->
-                        UpdateManager.install(this, release, updateCallback))
-                .setNegativeButton("Più tardi", null)
-                .show();
+        return nav;
     }
 
-    private void showToken() {
-        McpForegroundService.stopNow();
-        TextView view = new TextView(this);
-        view.setPadding(24, 24, 24, 24);
-        view.setText(SecretStore.current(this));
-        view.setTextIsSelectable(false);
-        view.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
-        view.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS);
-        AlertDialog dialog = new AlertDialog.Builder(this).setTitle("Token privato — servizio fermato")
-            .setView(view).setPositiveButton("Chiudi", null).create();
-        dialog.getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
-        dialog.show();
-    }
-
-    private String installedVersion() {
-        try {
-            String value = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
-            return value == null || value.isEmpty() ? "sconosciuta" : value;
-        } catch (PackageManager.NameNotFoundException e) {
-            return "sconosciuta";
+    private void showTab(int index) {
+        selectedTab = index;
+        for (int i = 0; i < 3; i++) {
+            boolean selected = i == index;
+            pages[i].setVisibility(selected ? View.VISIBLE : View.GONE);
+            tabs[i].setSelected(selected); tabs[i].setBackground(ui.ripple(selected ? UiKit.SOFT : UiKit.BG, 0, 18));
+            tabLabels[i].setTextColor(selected ? UiKit.ACCENT : UiKit.MUTED);
+            tabIcons[i].removeAllViews(); tabIcons[i].addView(ui.icon(tabSymbols[i], selected ? UiKit.ACCENT : UiKit.MUTED, 24));
         }
+    }
+
+    private void renderStatus() {
+        JSONObject transport = McpForegroundService.transportStatus();
+        JSONObject endpoints = transport.optJSONObject("endpoints");
+        JSONObject lan = endpoints == null ? null : endpoints.optJSONObject("lan");
+        JSONObject tailscale = endpoints == null ? null : endpoints.optJSONObject("tailscale");
+        boolean started = McpForegroundService.sessionEnabled();
+        boolean lanReady = lan != null && lan.optBoolean("available", false);
+        boolean tailscaleReady = tailscale != null && tailscale.optBoolean("available", false);
+        boolean ready = started && (lanReady || tailscaleReady);
+        replace(heroBadge, !started ? "SESSIONE SPENTA" : ready ? "SESSIONE ATTIVA" : "IN ATTESA DI RETE");
+        heroBadge.setTextColor(!started ? UiKit.MUTED : ready ? UiKit.ACCENT : UiKit.WARNING);
+        replace(heroTitle, !started ? "Pronto quando\nlo sei tu." : ready ? "Il controllo\nè nelle tue mani." : "Aspettiamo\nuna connessione.");
+        replace(heroDescription, !started ? "Scegli cosa condividere, poi apri una sessione per il tuo agente." : ready
+                ? "Il telefono è raggiungibile. Il tuo agente potrà accedere con il token autorizzato."
+                : "La sessione è aperta. Collega il Wi-Fi o attiva Tailscale per rendere disponibile il telefono.");
+        String action = started ? "Interrompi sessione" : "Avvia controllo remoto";
+        if (!sessionButton.getText().toString().equals(action)) {
+            sessionButton.setText(action); ui.paintButton(sessionButton, started ? UiKit.DANGER_BG : UiKit.ACCENT, started ? UiKit.DANGER : UiKit.BG);
+        }
+        replace(lanValue, endpointLabel(lan, started)); lanValue.setTextColor(lanReady ? UiKit.ACCENT : UiKit.MUTED);
+        replace(tailscaleValue, endpointLabel(tailscale, started)); tailscaleValue.setTextColor(tailscaleReady ? UiKit.ACCENT : UiKit.MUTED);
+        String preferred = transport.optString("preferredTransport", "none");
+        String selected = "lan".equals(preferred) ? "Wi-Fi locale" : "tailscale".equals(preferred) ? "Tailscale" : "Nessuna";
+        replace(preferredLabel, "Connessione preferita: " + selected);
+        String error = McpForegroundService.error();
+        replace(errorMessage, error); errorMessage.setVisibility(error.isEmpty() ? View.GONE : View.VISIBLE);
+        transportDetails = getString(R.string.transport_status,
+                started ? "Sessione aperta" : "Sessione spenta", endpointLabel(lan, started), endpointLabel(tailscale, started),
+                selected, accessibilityAllowed ? "Accessibilità autorizzata" : "Accessibilità non autorizzata", error.isEmpty() ? "" : "\n" + error);
+    }
+
+    private String endpointLabel(JSONObject endpoint, boolean started) {
+        if (endpoint != null && endpoint.optBoolean("available", false))
+            return "Disponibile  ·  " + endpoint.optString("address", "") + ":" + endpoint.optInt("port", McpHttpServer.PORT);
+        return started ? "Non disponibile al momento" : "Disponibile dopo l'avvio, se la rete è presente";
+    }
+
+    private void refreshPermissions() {
+        accessibilityAllowed = false;
+        AccessibilityManager manager = getSystemService(AccessibilityManager.class);
+        if (manager != null) for (AccessibilityServiceInfo info : manager.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)) {
+            if (info.getResolveInfo() != null && info.getResolveInfo().serviceInfo != null
+                    && getPackageName().equals(info.getResolveInfo().serviceInfo.packageName)) accessibilityAllowed = true;
+        }
+        NotificationManager notificationManager = getSystemService(NotificationManager.class);
+        notificationsAllowed = notificationManager != null && notificationManager.isNotificationListenerAccessGranted(new ComponentName(this, McpNotificationService.class));
+        replace(accessibilityBadge, accessibilityAllowed ? "Autorizzata" : "Da autorizzare");
+        accessibilityBadge.setTextColor(accessibilityAllowed ? UiKit.ACCENT : UiKit.WARNING);
+        replace(notificationBadge, notificationsAllowed ? "Autorizzate" : "Opzionali · non autorizzate");
+        notificationBadge.setTextColor(notificationsAllowed ? UiKit.ACCENT : UiKit.MUTED);
+        replace(setupDescription, !accessibilityAllowed ? "Vuoi controllare lo schermo? Autorizza Accessibilità. Per usare soltanto i file non è necessaria."
+                : rootCount == 0 ? "Il controllo schermo è configurato. Puoi aggiungere una cartella oppure collegare subito il tuo agente."
+                : "Schermo e cartelle sono configurati. Trovi il token per il tuo agente in Impostazioni.");
     }
 
     private void refreshRoots() {
         rootList.removeAllViews();
-        for (FileRootStore.Root root : roots.list()) {
-            text(rootList, root.uri.getLastPathSegment() + "\n" + root.id, 14);
-            button(rootList, "Revoca cartella", () -> {
-                McpForegroundService.stopNow();
-                try { roots.revoke(root.id); refreshRoots(); }
-                catch (ApiException e) { Toast.makeText(this, e.code, Toast.LENGTH_LONG).show(); }
-            });
+        java.util.List<FileRootStore.Root> current = roots.list(); rootCount = current.size();
+        replace(folderBadge, rootCount == 0 ? "Nessuna cartella autorizzata" : rootCount + (rootCount == 1 ? " cartella autorizzata" : " cartelle autorizzate"));
+        if (current.isEmpty()) {
+            LinearLayout empty = ui.card(rootList);
+            ui.heading(empty, "folder", "Un posto per i tuoi file", "Scegli una cartella da condividere. Potrai revocare l'accesso quando vuoi.");
         }
+        for (FileRootStore.Root root : current) {
+            LinearLayout card = ui.card(rootList);
+            String name = root.uri.getLastPathSegment();
+            if (name == null || name.isEmpty()) name = "Cartella condivisa";
+            int separator = Math.max(name.lastIndexOf('/'), name.lastIndexOf(':'));
+            if (separator >= 0 && separator < name.length() - 1) name = name.substring(separator + 1);
+            ui.heading(card, "folder", name, "Accesso tramite i permessi concessi da Android.");
+            ui.add(card, ui.button("Revoca accesso", false, () -> {
+                McpForegroundService.stopNow();
+                try { roots.revoke(root.id); refreshRoots(); refreshPermissions(); renderStatus(); toast("Accesso revocato. Sessione interrotta."); }
+                catch (ApiException e) { dialog("Impossibile revocare", e.code); }
+            }), 14);
+        }
+    }
+
+    private void renderAdvanced() {
+        if (advancedBody == null) return;
+        advancedBody.setVisibility(advancedExpanded ? View.VISIBLE : View.GONE);
+        advancedLabel.setText(advancedExpanded ? "Strumenti avanzati  −" : "Strumenti avanzati  +");
+        ((View)advancedLabel.getParent()).setContentDescription("Strumenti avanzati, " + (advancedExpanded ? "espansi" : "compressi"));
+    }
+    private void startRemoteControl() {
+        safely(() -> {
+            if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                startAfterPermission = true; requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 30); return;
+            }
+            startAfterPermission = false;
+            startForegroundService(new Intent(this, McpForegroundService.class).setAction("START"));
+            handler.post(this::renderStatus);
+        });
+    }
+    private void chooseFolder() {
+        safely(() -> startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).addFlags(
+                Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION), 20));
+    }
+    private void showToken() {
+        McpForegroundService.stopNow(); renderStatus();
+        LinearLayout content = ui.column(); content.setPadding(ui.dp(24), ui.dp(12), ui.dp(24), ui.dp(12));
+        content.addView(ui.text("Sessione interrotta per proteggere la tua chiave. Inseriscila nella configurazione privata dell'agente.", 14, UiKit.MUTED, false));
+        TextView token = ui.text(SecretStore.current(this), 16, UiKit.ACCENT, false);
+        token.setTextDirection(View.TEXT_DIRECTION_LTR);
+        token.setTypeface(Typeface.MONOSPACE); token.setTextIsSelectable(false);
+        token.setPadding(ui.dp(16), ui.dp(16), ui.dp(16), ui.dp(16)); token.setBackground(ui.shape(UiKit.BG, UiKit.BORDER, 12));
+        token.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
+        token.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS);
+        token.setSaveEnabled(false); ui.add(content, token, 16);
+        AlertDialog dialog = new AlertDialog.Builder(this).setTitle("Il tuo token di accesso").setView(content).setPositiveButton("Chiudi", null).create();
+        dialog.getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE); dialog.show();
+    }
+    private void showUpdateDialog(UpdateManager.Release release) {
+        if (isFinishing() || isDestroyed()) return;
+        StringBuilder message = new StringBuilder("Installata: ").append(installedVersion()).append("\nDisponibile: ").append(release.version)
+                .append("\n\nIl pacchetto viene verificato prima di aprire l'installer Android. La conferma finale resta tua.");
+        if (release.notes != null && !release.notes.trim().isEmpty()) {
+            String notes = release.notes.trim(); message.append("\n\n").append(notes.length() > 1200 ? notes.substring(0, 1200) + "…" : notes);
+        }
+        new AlertDialog.Builder(this).setTitle("È disponibile un aggiornamento").setMessage(message.toString())
+                .setPositiveButton("Aggiorna", (dialog, which) -> UpdateManager.install(this, release, updateCallback))
+                .setNegativeButton("Più tardi", null).show();
+    }
+    private void setUpdateStatus(String message) { if (!isDestroyed() && updateStatus != null) replace(updateStatus, message); }
+    private String installedVersion() {
+        try { String version = getPackageManager().getPackageInfo(getPackageName(), 0).versionName; return version == null ? "—" : version; }
+        catch (PackageManager.NameNotFoundException e) { return "—"; }
+    }
+    private void pageHeading(LinearLayout body, String title, String subtitle) {
+        TextView heading = ui.text(title, 30, UiKit.TEXT, true); heading.setLetterSpacing(-.02f); ui.add(body, heading, 14);
+        ui.add(body, ui.text(subtitle, 15, UiKit.MUTED, false), 12);
+    }
+    private void section(LinearLayout body, String title, String description) {
+        ui.add(body, ui.text(title, 20, UiKit.TEXT, true), 27);
+        ui.add(body, ui.text(description, 14, UiKit.MUTED, false), 8);
+    }
+    private void openSettings(String action) { safely(() -> startActivity(new Intent(action))); }
+    private void dialog(String title, String message) { if (!isFinishing() && !isDestroyed()) new AlertDialog.Builder(this).setTitle(title).setMessage(message).setPositiveButton("Chiudi", null).show(); }
+    private void toast(String message) { Toast.makeText(this, message, Toast.LENGTH_LONG).show(); }
+    private void safely(Runnable action) { try { action.run(); } catch (RuntimeException e) { toast("Operazione non disponibile. Riprova dalle impostazioni dell'app."); } }
+    private static void replace(TextView view, String value) { if (view != null && !view.getText().toString().equals(value)) view.setText(value); }
+    private void buttonSemantics(View view) {
+        view.setAccessibilityDelegate(new View.AccessibilityDelegate() {
+            @Override public void onInitializeAccessibilityNodeInfo(View host, AccessibilityNodeInfo info) {
+                super.onInitializeAccessibilityNodeInfo(host, info); info.setClassName(Button.class.getName()); info.setSelected(host.isSelected());
+            }
+        });
     }
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
         if (request == 20 && result == RESULT_OK && data != null) {
-            try { roots.add(data.getData()); refreshRoots(); }
-            catch (ApiException e) { Toast.makeText(this, e.code, Toast.LENGTH_LONG).show(); }
+            try { roots.add(data.getData()); refreshRoots(); refreshPermissions(); toast("Cartella aggiunta."); }
+            catch (ApiException e) { dialog("Cartella non autorizzata", e.code); }
         }
     }
+    @Override public void onRequestPermissionsResult(int request, String[] permissions, int[] results) {
+        super.onRequestPermissionsResult(request, permissions, results);
+        if (request == 30 && startAfterPermission) {
+            startAfterPermission = false;
+            if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) startRemoteControl();
+            else toast("Consenti le notifiche per avviare una sessione visibile e controllabile.");
+        }
+        if (request == 40) toast(results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED ? "Termux autorizzato." : "Permesso Termux non concesso.");
+        refreshPermissions();
+    }
+    @Override protected void onSaveInstanceState(Bundle state) {
+        state.putInt("ui.tab", selectedTab); state.putBoolean("ui.advanced", advancedExpanded); state.putBoolean("ui.pendingStart", startAfterPermission);
+        super.onSaveInstanceState(state);
+    }
     @Override protected void onResume() {
-        super.onResume();
-        refreshRoots();
-        handler.post(refreshStatus);
-        UpdateManager.resumePending(this, updateCallback);
-        UpdateManager.check(this, false, updateCallback);
+        super.onResume(); refreshRoots(); refreshPermissions(); handler.removeCallbacks(refreshStatus); handler.post(refreshStatus);
+        UpdateManager.resumePending(this, updateCallback); UpdateManager.check(this, false, updateCallback);
     }
     @Override protected void onPause() { handler.removeCallbacks(refreshStatus); super.onPause(); }
-    private TextView text(LinearLayout parent, String value, int size) {
-        TextView view = new TextView(this); view.setText(value); view.setTextSize(size); view.setPadding(0, 12, 0, 12); parent.addView(view); return view;
-    }
-    private void button(LinearLayout parent, String label, Runnable action) {
-        Button button = new Button(this); button.setText(label); button.setAllCaps(false);
-        button.setOnClickListener(view -> { try { action.run(); } catch (RuntimeException e) { Toast.makeText(this, "Operazione non disponibile.", Toast.LENGTH_LONG).show(); } });
-        parent.addView(button, new LinearLayout.LayoutParams(-1, -2));
-    }
+    @Override protected void onDestroy() { handler.removeCallbacksAndMessages(null); super.onDestroy(); }
+    @Override public void onBackPressed() { if (selectedTab != 0) showTab(0); else super.onBackPressed(); }
 }
