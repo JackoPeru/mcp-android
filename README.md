@@ -11,16 +11,16 @@ App Android + server MCP per usare il proprio telefono da un agente: loop semant
 - Termux >= 0.109 solo se si vuole usare android_shell; il permesso Run commands in Termux environment resta separato e deve essere concesso dall'utente.
 - Shizuku 11+ solo se si vuole usare android_shizuku_shell. Su Android 11+ Shizuku può essere avviato tramite Wireless debugging; se viene avviato come shell il comando gira come UID 2000, se l'utente lo avvia esplicitamente con root gira come UID 0.
 
-La v0.8.1 offre **due trasporti indipendenti** sulla stessa API autenticata e include l'hardening del failover/discovery introdotto dopo l'audit v0.8.0:
+La v0.8.2 offre **due trasporti indipendenti** sulla stessa API autenticata e chiude gli audit di sicurezza sul trasporto LAN:
 
 - **LAN Wi-Fi**, preferita automaticamente quando telefono e agente sono sulla stessa rete privata RFC1918 (`10/8`, `172.16/12`, `192.168/16`);
 - **Tailscale**, usata come fallback remoto tramite IPv4 `100.64.0.0/10`.
 
-Il server non ascolta mai su `0.0.0.0` o `::`: crea listener soltanto sugli indirizzi numerici concreti delle interfacce ammesse. Sulla LAN accetta inoltre solo peer appartenenti alla stessa subnet Wi-Fi. Il **token separato da 256 bit resta obbligatorio su entrambi i trasporti**. Non pubblicare porte, non usare Funnel e non inoltrare l'endpoint su Internet.
+Il server non ascolta mai su `0.0.0.0` o `::`: crea listener soltanto sugli indirizzi numerici concreti delle interfacce ammesse. Sulla LAN accetta inoltre solo peer appartenenti alla stessa subnet Wi-Fi. Il **token separato da 256 bit resta il segreto di autenticazione su entrambi i trasporti**, ma sulla LAN **non viene mai inviato sul filo**: discovery e handshake usano prove HMAC, mentre richieste e risposte RPC sono cifrate/autenticate con AES-256-GCM. Su Tailscale il bridge conserva il bearer HTTP compatibile con le versioni precedenti, protetto dal tunnel WireGuard di Tailscale. Non pubblicare porte, non usare Funnel e non inoltrare l'endpoint su Internet.
 
 ## Installazione senza cavo
 
-APK disponibile: **`dist/mcp-android-0.8.1-debug.apk`**, con SHA-256 nel file accanto. È una build debug firmata per installazione personale, non una release Play Store.
+APK disponibile: **`dist/mcp-android-0.8.2-debug.apk`**, con SHA-256 nel file accanto. È una build debug firmata per installazione personale, non una release Play Store.
 
 1. Trasferisci l'APK al telefono, ad esempio con Tailscale Taildrop o il tuo servizio file, e aprilo dal telefono. Autorizza l'installazione per l'app da cui lo apri.
 2. Apri MCP Android e abilita il servizio Accessibilità nelle impostazioni Android. Per APK installati esternamente, Android può richiedere prima **Consenti impostazioni con restrizioni** nelle informazioni dell'app.
@@ -57,11 +57,13 @@ ANDROID_MCP_TAILSCALE_URL=http://100.x.y.z:8765
 - `lan` — usa soltanto LAN, tramite URL configurato o discovery;
 - `tailscale` — usa soltanto Tailscale.
 
-In `auto`, il bridge prova prima l'endpoint LAN già noto; se non risponde, esegue **una singola discovery UDP locale** sulla porta **8766**, autentica il candidato con una normale RPC `status` e usa poi TCP **8765**. Se non trova un endpoint LAN valido, passa a Tailscale. La discovery non contiene mai il token e non resta attiva continuamente sul PC.
+In `auto`, il bridge prova prima l'endpoint LAN già noto; se non risponde, esegue **una singola discovery UDP locale** sulla porta **8766**. La risposta deve contenere una prova **HMAC-SHA256** valida derivata dal token, deve provenire dallo stesso IPv4 dichiarato nel payload e deve appartenere a una subnet locale realmente interrogata. Solo dopo queste verifiche il bridge apre il canale TCP **8765**. La discovery non contiene mai il token e non resta attiva continuamente sul PC.
 
 La discovery è opzionale: se UDP 8766 non è disponibile sul telefono o sulla rete, il listener TCP LAN 8765 continua a funzionare e può essere usato specificando `ANDROID_MCP_LAN_URL`.
 
-La risposta discovery viene accettata solo se l'IP dichiarato nel payload coincide con l'IP sorgente UDP ed è dentro una delle subnet locali interrogate. Un host LAN non può quindi far accettare un endpoint RFC1918 arbitrario soltanto copiando il nonce.
+Prima della prima RPC LAN il bridge invia un `/hello` privo di bearer con un nonce casuale. Il telefono restituisce un `session` casuale e una prova HMAC del segreto; un falso dispositivo che non conosce il token non può quindi farsi autenticare. Dal token + sessione vengono derivate chiavi **AES-256-GCM distinte per request e response**. Metodo, parametri, risultati ed errori RPC viaggiano solo dentro envelope autenticati/cifrati; HTTP resta soltanto il framing di trasporto.
+
+La risposta discovery viene accettata solo se HMAC, nonce, IP sorgente, IP dichiarato e subnet coincidono. Anche una risposta HTTP LAN non autenticabile, alterata o forgiata dopo l'invio di una RPC viene trattata come **outcome unknown**: la richiesta corrente non viene mai ripetuta automaticamente e la sessione LAN viene invalidata.
 
 Un errore dopo l'invio di una RPC mutante non provoca il replay automatico sulla seconda rete: l'esito viene considerato incerto. Se il trasporto LAN cade, la cache LAN viene però invalidata immediatamente; **la chiamata successiva** rivalida la LAN e, se non è raggiungibile, usa Tailscale.
 
@@ -164,9 +166,9 @@ Le operazioni concorrenti sono separate per dominio: filesystem, UI e shell hann
 
 ## Consumo batteria
 
-La v0.8.1 conserva la modalità ultra-low-power della v0.7.2 e il dual transport event-driven:
+La v0.8.2 conserva la modalità ultra-low-power della v0.7.2 e il dual transport event-driven:
 
-- il server HTTP resta bloccato su `accept()` quando non arrivano richieste, quindi non esegue polling;
+- il listener TCP resta bloccato su `accept()` quando non arrivano richieste, quindi non esegue polling; HMAC/AES-GCM vengono calcolati solo quando arriva discovery/traffico RPC;
 - il pool RPC mantiene **0 worker permanenti** a riposo e crea thread solo quando arriva una richiesta;
 - Wi-Fi e Tailscale vengono seguiti tramite due `ConnectivityManager.NetworkCallback`; non esiste polling rapido delle interfacce;
 - resta solo un watchdog di sicurezza ogni 15 minuti: **4 riconciliazioni/ora** in assenza di eventi di rete;
@@ -193,7 +195,7 @@ npm.cmd run check
 ./build-android.ps1
 ```
 
-I test verificano configurazione privata, HTTP autenticato, timeout, limiti di risposta, redirect, schemi, flow DSL, snapshot/diff, coordinate normalizzate, capability routing, trace privacy, indirizzi/subnet, riconciliazione duale, discovery LAN, selezione LAN-first senza replay mutante, coerenza delle versioni, policy release, identità/firma APK, domini di lock RPC e discovery dei **65 tool MCP** tramite processo stdio. La build Android esegue anche unit test e lint. I test desktop/JVM **non** dimostrano ancora discovery broadcast, bind Wi-Fi/Tailscale o consumo batteria su un telefono fisico. Risultati finali: `docs/acceptance.md`.
+I test verificano configurazione privata, bearer Tailscale legacy, timeout/limiti/redirect, HMAC discovery cross-language, source-IP/subnet validation, handshake server-authenticated, vettori AES-256-GCM Node↔Java, chiavi separate per direzione, anti-replay, assenza del bearer/plaintext sul path LAN, `outcome_unknown` su risposta LAN manomessa, callback VPN, flow DSL, snapshot/diff, capability routing, release identity/firma e discovery dei **65 tool MCP** tramite processo stdio. La build Android esegue anche unit test e lint. I test desktop/JVM **non** dimostrano ancora broadcast/routing reale su uno specifico telefono/router né consumo batteria fisico. Risultati finali: `docs/acceptance.md`.
 
 Per ricompilare servono JDK 17 o successivo e Android SDK 35. `build-android.ps1` trova SDK e Java locali, incluso l'eventuale JDK portatile ignorato in `.tools/jdk17`, esegue build/test/lint e aggiorna APK e checksum in `dist`. `publish-release.ps1` ripete le verifiche e pubblica la release GitHub dalla macchina locale. Non cambia variabili di sistema né usa ADB. Il progetto include Gradle Wrapper.
 
@@ -203,7 +205,7 @@ La repository include inoltre:
 - `.github/workflows/release.yml`: release firmata e immutabile, avviabile manualmente solo da `main`; richiede il secret `ANDROID_DEBUG_KEYSTORE_B64` contenente **la stessa** chiave usata per le release esistenti e rifiuta tag già pubblicati;
 - `scripts/version-check.mjs`: impedisce di pubblicare versioni discordanti tra package Node, bridge MCP, Gradle, script APK e tag release.
 
-Prova sul telefono dopo installazione: **Tailscale OFF + stessa Wi-Fi** → verifica LAN/discovery/RPC → **Tailscale ON + stessa Wi-Fi** → verifica che `auto` preferisca LAN → spegni Wi-Fi e verifica nuove RPC via Tailscale → riaccendi Wi-Fi/DHCP e verifica rediscovery → poi stato → `screen_context` → `act_and_observe` → `flow` → file/notifiche/Termux/Shizuku → `diagnostics` → STOP e verifica chiusura di entrambi i listener TCP, discovery UDP, callback di rete e backend opzionali.
+Prova sul telefono dopo installazione: **Tailscale OFF + stessa Wi-Fi** → verifica discovery HMAC + `/hello` + RPC cifrata → **Tailscale ON + stessa Wi-Fi** → verifica che `auto` preferisca LAN → spegni Wi-Fi e verifica che la chiamata corrente non venga replayata e le nuove RPC usino Tailscale → riaccendi Wi-Fi/DHCP e verifica rediscovery/nuova sessione → poi stato → `screen_context` → `act_and_observe` → `flow` → file/notifiche/Termux/Shizuku → `diagnostics` → STOP e verifica chiusura di entrambi i listener TCP, discovery UDP, callback di rete e backend opzionali.
 
 ## Fonti ufficiali
 
