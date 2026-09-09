@@ -11,7 +11,14 @@ App Android + server MCP per usare il proprio telefono da un agente: loop semant
 - Termux >= 0.109 solo se si vuole usare android_shell; il permesso Run commands in Termux environment resta separato e deve essere concesso dall'utente.
 - Shizuku 11+ solo se si vuole usare android_shizuku_shell. Su Android 11+ Shizuku può essere avviato tramite Wireless debugging; se viene avviato come shell il comando gira come UID 2000, se l'utente lo avvia esplicitamente con root gira come UID 0.
 
-La v0.8.2 offre **due trasporti indipendenti** sulla stessa API autenticata e chiude gli audit di sicurezza sul trasporto LAN:
+La v0.8.3 mantiene i **due trasporti indipendenti** della v0.8.2 e porta l'updater Android allo stesso flusso esplicito usato da HermesHub:
+
+- **Controlla → Scarica aggiornamento → Installa aggiornamento**;
+- APK scaricato in `.part`, verificato per dimensione/SHA-256/package/versionCode/firma prima di diventare installabile;
+- APK valido riutilizzabile senza nuovo download;
+- installazione affidata all'installer standard Android tramite `FileProvider`, senza auto-installazione nascosta.
+
+I trasporti restano:
 
 - **LAN Wi-Fi**, preferita automaticamente quando telefono e agente sono sulla stessa rete privata RFC1918 (`10/8`, `172.16/12`, `192.168/16`);
 - **Tailscale**, usata come fallback remoto tramite IPv4 `100.64.0.0/10`.
@@ -20,7 +27,7 @@ I listener **TCP RPC** non ascoltano mai su `0.0.0.0` o `::`: vengono legati sol
 
 ## Installazione senza cavo
 
-APK disponibile: **`dist/mcp-android-0.8.2-debug.apk`**, con SHA-256 nel file accanto. È una build debug firmata per installazione personale, non una release Play Store.
+APK disponibile: **`dist/mcp-android-0.8.3-debug.apk`**, con SHA-256 nel file accanto. È una build debug firmata per installazione personale, non una release Play Store.
 
 1. Trasferisci l'APK al telefono, ad esempio con Tailscale Taildrop o il tuo servizio file, e aprilo dal telefono. Autorizza l'installazione per l'app da cui lo apri.
 2. Apri MCP Android e abilita il servizio Accessibilità nelle impostazioni Android. Per APK installati esternamente, Android può richiedere prima **Consenti impostazioni con restrizioni** nelle informazioni dell'app.
@@ -167,7 +174,7 @@ Le operazioni concorrenti sono separate per dominio: filesystem, UI e shell hann
 
 ## Consumo batteria
 
-La v0.8.2 conserva la modalità ultra-low-power della v0.7.2 e il dual transport event-driven:
+La v0.8.3 conserva la modalità ultra-low-power della v0.7.2 e il dual transport event-driven:
 
 - il listener TCP resta bloccato su `accept()` quando non arrivano richieste, quindi non esegue polling; HMAC/AES-GCM vengono calcolati solo quando arriva discovery/traffico RPC;
 - il pool RPC mantiene **0 worker permanenti** a riposo e crea thread solo quando arriva una richiesta;

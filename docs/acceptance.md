@@ -1,4 +1,4 @@
-# Acceptance v0.8.2
+# Acceptance v0.8.3
 
 ## Scope verificato
 
@@ -107,7 +107,7 @@ Questa verifica riguarda architettura, lifecycle e test software. **Non viene di
 
 ## Boundary fisico
 
-Nessun telefono fisico è stato collegato durante l'implementazione v0.8.2. Build, test JVM e fixture Node non dimostrano ancora:
+Nessun telefono fisico è stato collegato durante l'implementazione v0.8.3. Build, test JVM e fixture Node non dimostrano ancora:
 
 - ricezione reale del broadcast UDP 8766 su una specifica ROM Android;
 - bind simultaneo reale dei listener LAN e Tailscale;
@@ -131,9 +131,9 @@ Questi punti richiedono collaudo end-to-end sul telefono.
 - Node: v24.19.0.
 - `npm.cmd run check`:
   - coerenza versione: OK;
-  - **33 test Node, tutti passati**.
+  - **36 test Node, tutti passati**.
 - `npm audit --omit=dev`: **0 vulnerabilità**.
-- Test Node v0.8.2 includono:
+- Test Node v0.8.3 includono:
   - config Tailscale legacy;
   - config dual transport;
   - validazione URL LAN/Tailscale;
@@ -185,20 +185,21 @@ Questi punti richiedono collaudo end-to-end sul telefono.
   - UiLoopPolicyTest: 2
   - UpdateValidationTest: 2
   - VersioningTest: 2
-- Lint: **0 errori, 13 warning**:
+- Lint: **0 errori, 14 warning**:
   - targetSdk 35 non è l'ultimo SDK disponibile nell'ambiente;
+  - `androidx.core:core 1.15.0` non è l'ultima versione disponibile nell'ambiente;
   - 12 stringhe legacy risultano ora inutilizzate dopo il redesign della UI.
 
 ## APK
 
 - Package: `com.example.androidmcp`.
-- versionCode: **13**.
-- versionName: **0.8.2**.
+- versionCode: **14**.
+- versionName: **0.8.3**.
 - minSdk: **30**.
 - targetSdk: **35**.
-- APK: `dist/mcp-android-0.8.2-debug.apk`.
-- Dimensione: **3,035,807 byte**.
-- SHA-256: `a42cee3a06558f847e4c85f068597bdd6464c83f2c602a4c82505cf6282f3ff8`.
+- APK: `dist/mcp-android-0.8.3-debug.apk`.
+- Dimensione: **6,545,202 byte**.
+- SHA-256: `f125c702268c4d529eff3d3d286254514d7070740dbbdbc3f2571fcd0572d175`.
 - APK Signature Scheme v2: **valida**.
 - Signer: **1**.
 - Chiave: RSA 2048, Android Debug.
@@ -278,4 +279,4 @@ Misurare separatamente per alcune ore:
 
 ## Stato
 
-Implementazione software/build **completa per v0.8.2 secure LAN transport**. La release è pronta per il collaudo fisico, ma broadcast/routing reale, packet capture su rete fisica e consumo batteria non vengono dichiarati verificati finché non vengono provati sul telefono.
+Implementazione software/build **completa per v0.8.3**, con secure LAN transport e updater in stile HermesHub. La release è pronta per il collaudo fisico, ma broadcast/routing reale, packet capture su rete fisica, updater su dispositivo reale e consumo batteria non vengono dichiarati verificati finché non vengono provati sul telefono.
