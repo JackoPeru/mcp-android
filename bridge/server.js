@@ -147,7 +147,7 @@ const definitions = [
 ];
 
 export function createMcpServer(client) {
-  const server = new McpServer({ name: 'android-private-mcp', version: '0.7.2' });
+  const server = new McpServer({ name: 'android-private-mcp', version: '0.8.0' });
   const schemas = new Map();
   for (const [method, description, shape, readOnly] of definitions) {
     const schema = z.object(shape).strict();
@@ -241,7 +241,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     const server = createMcpServer(new AndroidClient(readConfig()));
     await server.connect(new StdioServerTransport());
   } catch {
-    console.error('Android MCP startup failed. Set ANDROID_MCP_URL to the phone Tailscale origin and ANDROID_MCP_TOKEN to its 64-character secret.');
+    console.error('Android MCP startup failed. Configure ANDROID_MCP_TOKEN plus a LAN/Tailscale endpoint or LAN discovery.');
     process.exitCode = 1;
   }
 }

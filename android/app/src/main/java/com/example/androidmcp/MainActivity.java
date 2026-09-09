@@ -18,6 +18,8 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import org.json.JSONObject;
+
 public final class MainActivity extends Activity {
     private FileRootStore roots;
     private TextView status;
@@ -45,14 +47,29 @@ public final class MainActivity extends Activity {
     private final Handler handler = new Handler(android.os.Looper.getMainLooper());
     private final Runnable refreshStatus = new Runnable() {
         @Override public void run() {
-            String remote = McpForegroundService.isRunning()
-                    ? getString(R.string.remote_active, McpForegroundService.address())
-                    : getString(R.string.remote_stopped);
+            JSONObject transport = McpForegroundService.transportStatus();
+            JSONObject endpoints = transport.optJSONObject("endpoints");
+            JSONObject lan = endpoints == null ? null : endpoints.optJSONObject("lan");
+            JSONObject tailscale = endpoints == null ? null : endpoints.optJSONObject("tailscale");
+            String lanStatus = lan != null && lan.optBoolean("available", false)
+                    ? lan.optString("address", "") + ":" + lan.optInt("port", McpHttpServer.PORT)
+                    : getString(R.string.endpoint_unavailable);
+            String tailscaleStatus = tailscale != null && tailscale.optBoolean("available", false)
+                    ? tailscale.optString("address", "") + ":" + tailscale.optInt("port", McpHttpServer.PORT)
+                    : getString(R.string.endpoint_unavailable);
+            String preferred = transport.optString("preferredTransport", "none");
+            if ("lan".equals(preferred)) preferred = getString(R.string.preferred_lan);
+            else if ("tailscale".equals(preferred)) preferred = getString(R.string.preferred_tailscale);
+            else preferred = getString(R.string.preferred_none);
+            String remote = getString(McpForegroundService.sessionEnabled()
+                    ? R.string.remote_control_active : R.string.remote_control_waiting);
             String accessibility = getString(R.string.accessibility_state,
                     getString(McpAccessibilityService.active() == null
                             ? R.string.accessibility_off : R.string.accessibility_on));
-            status.setText(getString(R.string.status_summary,
-                    remote, accessibility, McpForegroundService.error()));
+            String error = McpForegroundService.error();
+            String errorSuffix = error.isEmpty() ? "" : getString(R.string.transport_status_error, error);
+            status.setText(getString(R.string.transport_status,
+                    remote, lanStatus, tailscaleStatus, preferred, accessibility, errorSuffix));
             handler.postDelayed(this, 1000);
         }
     };
@@ -73,7 +90,7 @@ public final class MainActivity extends Activity {
             return insets;
         });
         text(layout, "MCP Android", 28);
-        text(layout, "Controllo del tuo telefono su rete privata Tailscale. Il token autorizza l'agente a usare la UI e le cartelle che scegli. Le modifiche ai file sono possibili solo dove Android concede anche il permesso di scrittura. Avvia soltanto quando vuoi consentire l'accesso.", 16);
+        text(layout, "Controllo del tuo telefono via Wi-Fi locale o Tailscale. In casa l'agente preferisce la LAN; fuori casa può usare Tailscale. Il token resta obbligatorio su entrambi i trasporti. Avvia soltanto quando vuoi consentire l'accesso.", 16);
         text(layout, "Versione installata: " + installedVersion(), 15);
         status = text(layout, "", 16);
         updateStatus = text(layout, "Aggiornamenti: controllo automatico giornaliero.", 14);

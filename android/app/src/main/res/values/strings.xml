@@ -1,12 +1,17 @@
 <resources>
     <string name="app_name">Android Private MCP</string>
     <string name="accessibility_description">Consente al tuo agente associato di leggere lo schermo, toccare, scorrere e scrivere. Il controllo remoto richiede avvio esplicito nella app e può essere fermato dalla notifica. Non raccoglie eventi in background.</string>
-    <string name="remote_active">Attivo: http://%1$s:8765</string>
-    <string name="remote_stopped">Servizio fermo</string>
     <string name="accessibility_state">Accessibilità: %1$s</string>
-    <string name="status_summary">%1$s&#10;%2$s&#10;%3$s</string>
     <string name="accessibility_on">attiva</string>
     <string name="accessibility_off">disattivata</string>
+    <string name="remote_control_active">Controllo remoto: ATTIVO</string>
+    <string name="remote_control_waiting">Controllo remoto: IN ATTESA/STOP</string>
+    <string name="endpoint_unavailable">NON DISPONIBILE</string>
+    <string name="preferred_lan">LAN</string>
+    <string name="preferred_tailscale">TAILSCALE</string>
+    <string name="preferred_none">NESSUNA</string>
+    <string name="transport_status">%1$s&#10;LAN: %2$s&#10;Tailscale: %3$s&#10;Preferita: %4$s&#10;%5$s%6$s</string>
+    <string name="transport_status_error">&#10;Errore: %1$s</string>
     <string name="update_current">Aggiornamenti: versione %1$s già aggiornata.</string>
     <string name="update_available">Aggiornamento disponibile: v%1$s</string>
     <string name="update_error">Aggiornamenti: %1$s</string>

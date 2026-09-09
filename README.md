@@ -5,17 +5,22 @@ App Android + server MCP per usare il proprio telefono da un agente: loop semant
 ## Requisiti
 
 - Android 11 o successivo.
-- Tailscale collegato sul telefono e sul PC dell'agente, nella stessa rete privata. Il PC deve poter raggiungere il telefono secondo le regole della propria tailnet.
+- Una rete Wi-Fi locale condivisa **oppure** Tailscale. Tailscale è necessario solo per l'accesso remoto quando telefono e agente non sono sulla stessa LAN.
 - Node.js 22 o successivo sul PC.
 - Installazione manuale dell'APK e concessione iniziale dei permessi sul telefono.
 - Termux >= 0.109 solo se si vuole usare android_shell; il permesso Run commands in Termux environment resta separato e deve essere concesso dall'utente.
 - Shizuku 11+ solo se si vuole usare android_shizuku_shell. Su Android 11+ Shizuku può essere avviato tramite Wireless debugging; se viene avviato come shell il comando gira come UID 2000, se l'utente lo avvia esplicitamente con root gira come UID 0.
 
-La connessione usa HTTP sulla rete WireGuard cifrata di Tailscale, con token separato di 256 bit. Non pubblicare porte, non usare Funnel e non inoltrare questo endpoint su Internet. Il bridge accetta soltanto indirizzi IPv4 Tailscale numerici `100.64.0.0/10`; l'app deve ascoltare sul proprio IP Tailscale. Non disabilitare la verifica TLS se si configura HTTPS.
+La v0.8.0 offre **due trasporti indipendenti** sulla stessa API autenticata:
+
+- **LAN Wi-Fi**, preferita automaticamente quando telefono e agente sono sulla stessa rete privata RFC1918 (`10/8`, `172.16/12`, `192.168/16`);
+- **Tailscale**, usata come fallback remoto tramite IPv4 `100.64.0.0/10`.
+
+Il server non ascolta mai su `0.0.0.0` o `::`: crea listener soltanto sugli indirizzi numerici concreti delle interfacce ammesse. Sulla LAN accetta inoltre solo peer appartenenti alla stessa subnet Wi-Fi. Il **token separato da 256 bit resta obbligatorio su entrambi i trasporti**. Non pubblicare porte, non usare Funnel e non inoltrare l'endpoint su Internet.
 
 ## Installazione senza cavo
 
-APK disponibile: **`dist/mcp-android-0.7.2-debug.apk`**, con SHA-256 nel file accanto. È una build debug firmata per installazione personale, non una release Play Store.
+APK disponibile: **`dist/mcp-android-0.8.0-debug.apk`**, con SHA-256 nel file accanto. È una build debug firmata per installazione personale, non una release Play Store.
 
 1. Trasferisci l'APK al telefono, ad esempio con Tailscale Taildrop o il tuo servizio file, e aprilo dal telefono. Autorizza l'installazione per l'app da cui lo apri.
 2. Apri MCP Android e abilita il servizio Accessibilità nelle impostazioni Android. Per APK installati esternamente, Android può richiedere prima **Consenti impostazioni con restrizioni** nelle informazioni dell'app.
@@ -23,9 +28,9 @@ APK disponibile: **`dist/mcp-android-0.7.2-debug.apk`**, con SHA-256 nel file ac
 4. Se vuoi notifiche e media, premi **Accesso notifiche** e abilita MCP Android come Notification Listener.
 5. Se vuoi la shell Termux, installa Termux, premi **Abilita shell Termux** e concedi il permesso aggiuntivo Run commands in Termux environment.
 6. Se vuoi la shell Shizuku, avvia Shizuku e premi **Abilita Shizuku**. Il consenso Shizuku è separato da Termux e non abilita alcun fallback automatico.
-7. Collega Tailscale, avvia il servizio remoto dall'app e annota indirizzo e token mostrati. Mantieni la connessione Tailscale attiva; sui telefoni che sospendono le app, configura la batteria per consentire il funzionamento di MCP Android, Tailscale e gli eventuali backend opzionali.
+7. Avvia il servizio remoto dall'app. Se sei a casa, MCP Android espone automaticamente l'endpoint **LAN** e non richiede Tailscale. Se vuoi anche l'accesso da fuori casa, avvia Tailscale: comparirà un secondo endpoint senza interrompere la LAN.
 8. Sul PC, nella cartella del progetto, esegui `npm.cmd ci --ignore-scripts`.
-9. Adatta `mcp-config.example.json` alla configurazione MCP del tuo agente: sostituisci IP, porta e token con quelli del telefono. Il server è stdio: l'agente avvia `node bridge/server.js`, non serve un server HTTP sul PC.
+9. Adatta `mcp-config.example.json`: inserisci il token e, per il fallback remoto, l'IP Tailscale del telefono. In modalità `auto` non serve configurare l'IP Wi-Fi: il bridge prova la LAN tramite discovery locale e usa Tailscale soltanto se la LAN non è raggiungibile.
 
 L'updater interno è stato introdotto con la v0.6.0. Se sul telefono è installata una versione precedente che non contiene l'updater, installa manualmente una volta la release attuale; da quel momento le versioni successive possono essere rilevate dall'app.
 
@@ -33,7 +38,30 @@ Il token è una credenziale: conservarlo solo nella configurazione locale dell'a
 
 Mostrare il token o revocare una cartella ferma il servizio. Dopo aver completato la configurazione premi nuovamente **Avvia controllo remoto**. Al primo avvio Android può chiedere il permesso notifiche: concedilo e premi nuovamente Avvia.
 
-`avvia-mcp.cmd` è un avvio alternativo per client stdio; richiede `ANDROID_MCP_URL` e `ANDROID_MCP_TOKEN` nell'ambiente del processo. Non produce un'interfaccia interattiva nel terminale.
+`avvia-mcp.cmd` è un avvio alternativo per client stdio. La configurazione consigliata è:
+
+```text
+ANDROID_MCP_TOKEN=<64 caratteri hex>
+ANDROID_MCP_TRANSPORT=auto
+ANDROID_MCP_DISCOVERY=true
+ANDROID_MCP_TAILSCALE_URL=http://100.x.y.z:8765
+```
+
+`ANDROID_MCP_LAN_URL=http://192.168.x.y:8765` è opzionale e serve solo se vuoi fissare manualmente l'endpoint LAN. La vecchia coppia `ANDROID_MCP_URL=http://100.x.y.z:8765` + token resta compatibile e forza il comportamento Tailscale-only.
+
+### Selezione automatica del trasporto
+
+`ANDROID_MCP_TRANSPORT` accetta:
+
+- `auto` — prova prima LAN e poi Tailscale;
+- `lan` — usa soltanto LAN, tramite URL configurato o discovery;
+- `tailscale` — usa soltanto Tailscale.
+
+In `auto`, il bridge prova prima l'endpoint LAN già noto; se non risponde, esegue **una singola discovery UDP locale** sulla porta **8766**, autentica il candidato con una normale RPC `status` e usa poi TCP **8765**. Se non trova un endpoint LAN valido, passa a Tailscale. La discovery non contiene mai il token e non resta attiva continuamente sul PC.
+
+La discovery è opzionale: se UDP 8766 non è disponibile sul telefono o sulla rete, il listener TCP LAN 8765 continua a funzionare e può essere usato specificando `ANDROID_MCP_LAN_URL`.
+
+Un errore dopo l'invio di una RPC mutante non provoca il replay automatico sulla seconda rete: l'esito viene considerato incerto, mantenendo la regola di sicurezza già usata per gesture e shell.
 
 ## Aggiornamenti
 
@@ -57,7 +85,7 @@ Il certificato che firma le release deve restare identico a quello usato dalla v
 
 | Tool | Uso |
 |---|---|
-| `android_status` | Stato telefono, recovery Tailscale, richieste attive/in coda e capacità disponibili |
+| `android_status` | Stato telefono, endpoint LAN/Tailscale, trasporto preferito, richieste attive/in coda e capacità disponibili |
 | `android_screen_context` | Osservazione preferita per agenti: UI semantica compatta, snapshot ID/hash e screenshot opzionale |
 | `android_screen_diff` | Diff semantico tra due snapshot recenti |
 | `android_wait_idle`, `android_wait_change`, `android_wait_activity` | Sincronizzazione senza sleep ciechi |
@@ -93,7 +121,7 @@ Il certificato che firma le release deve restare identico a quello usato dalla v
 | `android_capabilities` | Categorie tool, requisiti/backend, classe operazione e disponibilità runtime |
 | `android_force_stop_app` | Force-stop nominato tramite Shizuku esplicitamente autorizzato; non può fermare MCP Android stesso |
 | `android_logcat` | Logcat bounded/redatto con filtri package/tag/livello/tempo tramite Shizuku |
-| `android_diagnostics` | Stato servizio/Tailscale, richieste, snapshot, capability, eventi e trace metadata-only |
+| `android_diagnostics` | Stato servizio e trasporti LAN/Tailscale, richieste, snapshot, capability, eventi e trace metadata-only |
 | `android_file_roots` | Cartelle autorizzate, senza Accessibilità |
 | `android_file_list` | Elenco paginato di una cartella autorizzata |
 | `android_file_stat` | Metadati di file o cartella |
@@ -130,26 +158,29 @@ Le operazioni concorrenti sono separate per dominio: filesystem, UI e shell hann
 - `webViewDetected` segnala WebView-like nodes nel contesto semantico; ispezione CDP completa e visual locator automatico non fanno parte della v0.7.
 - Fermando il controllo remoto viene anche smontato il UserService Shizuku.
 - Le funzioni standard non richiedono Shizuku, root o ADB.
-- Se Tailscale cade temporaneamente, il foreground service resta vivo in stato `reconnecting` e chiude solo il socket MCP. Il ritorno/cambio della VPN viene rilevato tramite callback Android e il server si riapre senza dover premere nuovamente Avvia; un watchdog raro ogni 15 minuti resta solo come fallback se il produttore perdesse una callback. Android o il produttore possono comunque terminare il processo; la notifica e il pulsante Stop rendono visibile e revocabile il controllo.
+- LAN e Tailscale sono indipendenti: la perdita del Wi-Fi chiude soltanto il listener LAN; la perdita della VPN chiude soltanto il listener Tailscale. Le variazioni vengono rilevate tramite callback Android e un watchdog raro ogni 15 minuti resta solo come fallback. Android o il produttore possono comunque terminare il processo; la notifica e il pulsante Stop rendono visibile e revocabile il controllo.
 
 ## Consumo batteria
 
-La v0.7.2 porta il processo in modalità ultra-low-power fuori da una sessione remota:
+La v0.8.0 conserva la modalità ultra-low-power della v0.7.2 e rende anche il dual transport event-driven:
 
 - il server HTTP resta bloccato su `accept()` quando non arrivano richieste, quindi non esegue polling;
 - il pool RPC mantiene **0 worker permanenti** a riposo e crea thread solo quando arriva una richiesta;
-- Tailscale viene seguito tramite `ConnectivityManager.NetworkCallback`; il vecchio controllo ogni 2 secondi è stato rimosso;
-- resta solo un watchdog di sicurezza ogni 15 minuti: da 1.800 controlli/ora del vecchio polling a **4 controlli/ora** in assenza di eventi VPN;
+- Wi-Fi e Tailscale vengono seguiti tramite due `ConnectivityManager.NetworkCallback`; non esiste polling rapido delle interfacce;
+- resta solo un watchdog di sicurezza ogni 15 minuti: **4 riconciliazioni/ora** in assenza di eventi di rete;
+- in casa con Tailscale spento resta un solo listener TCP LAN bloccato su `accept()` e un responder UDP bloccato su `receive()`, entrambi senza loop di polling;
+- se LAN e Tailscale sono entrambi disponibili esistono due listener TCP indipendenti, sempre bloccati in attesa quando inattivi;
+- la discovery LAN non usa mDNS né multicast lock e risponde soltanto a datagrammi ricevuti sulla subnet locale;
 - quando premi **STOP**, Accessibility imposta `eventTypes=0`: il permesso resta concesso ma MCP non chiede più eventi UI; con Avvia ripristina solo il sottoinsieme necessario, mai `TYPES_ALL_MASK`;
 - quando premi **STOP**, il Notification Listener esegue `requestUnbind()`; all'Avvia viene richiesto il rebind solo se Android ha già il permesso;
-- callback VPN e watchdog vengono unregisterati/rimossi immediatamente allo STOP;
+- callback Wi-Fi/VPN, listener TCP, discovery UDP e watchdog vengono unregisterati/chiusi immediatamente allo STOP;
 - Shizuku è inizializzato **solo al primo uso reale** e il binder listener viene rimosso allo STOP;
 - il worker dell'updater non è permanente: dopo un controllo aggiornamenti resta inattivo al massimo 30 secondi e poi termina;
 - Accessibility raggruppa gli eventi attivi con `notificationTimeout=100 ms`;
 - `screen_context`, screenshot, diff e scansioni dell'albero vengono eseguiti solo quando richiesti;
 - durante `wait_idle`/`wait_change` il polling semantico è limitato a 4 campioni/s invece di 10 campioni/s.
 
-Non viene dichiarata una percentuale di batteria/ora senza misura su telefono reale: il consumo effettivo dipende anche da dispositivo, ROM, schermo, frequenza delle automazioni e soprattutto dal fatto che Tailscale resti attivo. Con controllo remoto fermo MCP non ha più polling periodico, callback VPN, eventi Accessibility richiesti, Notification Listener bound o Shizuku inizializzato. Android può comunque mantenere il processo/AccessibilityService residente in RAM perché il permesso Accessibility resta abilitato, ma senza eventi richiesti non c'è un loop CPU MCP. Sotto automazione intensa, screenshot e traversate UI sono le operazioni più costose e vengono eseguite solo su richiesta.
+Non viene dichiarata una percentuale di batteria/ora senza misura su telefono reale. In casa puoi spegnere Tailscale e lasciare MCP Android raggiungibile solo via Wi-Fi, eliminando il consumo del servizio VPN. Con controllo remoto fermo MCP non ha polling periodico, callback di rete, listener TCP/UDP, eventi Accessibility richiesti, Notification Listener bound o Shizuku inizializzato. Sotto automazione intensa, screenshot e traversate UI restano le operazioni più costose e vengono eseguite solo su richiesta.
 
 ## Verifiche ripetibili
 
@@ -159,7 +190,7 @@ npm.cmd run check
 ./build-android.ps1
 ```
 
-I test verificano configurazione privata, HTTP autenticato, timeout, limiti di risposta, redirect, schemi, flow DSL, snapshot/diff, coordinate normalizzate, capability routing, trace privacy, coerenza delle versioni, policy release, identità/firma APK, domini di lock RPC, recovery Tailscale e discovery dei **65 tool MCP** tramite processo stdio. La build Android esegue anche unit test e lint. Un endpoint locale simulato copre il contratto, **non** prova gesti reali, clipboard, Notification Listener, Termux, Shizuku, provider SAF, updater/installazione o connessione Tailscale su un telefono fisico. Build Android e risultati finali: `docs/acceptance.md`.
+I test verificano configurazione privata, HTTP autenticato, timeout, limiti di risposta, redirect, schemi, flow DSL, snapshot/diff, coordinate normalizzate, capability routing, trace privacy, indirizzi/subnet, riconciliazione duale, discovery LAN, selezione LAN-first senza replay mutante, coerenza delle versioni, policy release, identità/firma APK, domini di lock RPC e discovery dei **65 tool MCP** tramite processo stdio. La build Android esegue anche unit test e lint. I test desktop/JVM **non** dimostrano ancora discovery broadcast, bind Wi-Fi/Tailscale o consumo batteria su un telefono fisico. Risultati finali: `docs/acceptance.md`.
 
 Per ricompilare servono JDK 17 o successivo e Android SDK 35. `build-android.ps1` trova SDK e Java locali, incluso l'eventuale JDK portatile ignorato in `.tools/jdk17`, esegue build/test/lint e aggiorna APK e checksum in `dist`. `publish-release.ps1` ripete le verifiche e pubblica la release GitHub dalla macchina locale. Non cambia variabili di sistema né usa ADB. Il progetto include Gradle Wrapper.
 
@@ -169,7 +200,7 @@ La repository include inoltre:
 - `.github/workflows/release.yml`: release firmata e immutabile, avviabile manualmente solo da `main`; richiede il secret `ANDROID_DEBUG_KEYSTORE_B64` contenente **la stessa** chiave usata per le release esistenti e rifiuta tag già pubblicati;
 - `scripts/version-check.mjs`: impedisce di pubblicare versioni discordanti tra package Node, bridge MCP, Gradle, script APK e tag release.
 
-Prova sul telefono dopo installazione: stato → `screen_context` + screenshot opzionale → `act_and_observe` con click/wait/diff → `flow` deterministico di almeno 5 step → `scroll_to` → double tap/drag/pinch → clipboard → app list/intenti → Notification Listener e media → root SAF di prova con read/search/write/mkdir/rename/move/copy/delete → Termux status e `printf test` → Shizuku status e `id`/`printf test` → `force_stop_app` su un'app di test → `logcat` bounded → `diagnostics` → Stop e verifica che il UserService Shizuku venga disconnesso → disattiva i singoli permessi e verifica errori → ruota token → Stop e verifica disconnessione.
+Prova sul telefono dopo installazione: **Tailscale OFF + stessa Wi-Fi** → verifica LAN/discovery/RPC → **Tailscale ON + stessa Wi-Fi** → verifica che `auto` preferisca LAN → spegni Wi-Fi e verifica nuove RPC via Tailscale → riaccendi Wi-Fi/DHCP e verifica rediscovery → poi stato → `screen_context` → `act_and_observe` → `flow` → file/notifiche/Termux/Shizuku → `diagnostics` → STOP e verifica chiusura di entrambi i listener TCP, discovery UDP, callback di rete e backend opzionali.
 
 ## Fonti ufficiali
 
