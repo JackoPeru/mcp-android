@@ -1,4 +1,10 @@
-# Acceptance v0.8.5
+# Acceptance v0.8.6
+
+## Delta v0.8.6 (OnePlus 7, Android 12, 13/09/2026)
+
+- Nuovo logo: adaptive icon + mipmap da `logo mcp android.png` (firma `ic_launcher`, round, sfondo `#0B1217` in tema con l'app).
+- Guida `allow-external-apps` integrata nei dialoghi Termux e nel README: senza la proprietà in `~/.termux/termux.properties` Termux risponde `termuxErrorCode 2`.
+- Shell Termux verificata live (`id`, `pwd`, stdin, exit 0) dopo fallback + proprietà.
 
 ## Delta v0.8.5 (OnePlus 7, Android 12, 13/09/2026)
 

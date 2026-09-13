@@ -232,13 +232,14 @@ public final class MainActivity extends Activity {
                         "Serve Termux da F-Droid: la versione Play Store è obsoleta e non espone il comando esterno.\n\n"
                                 + "1. Installa Termux da F-Droid.\n"
                                 + "2. Aprila una volta e attendi il setup iniziale.\n"
-                                + "3. Ripremi Autorizza Termux.");
+                                + "3. In Termux esegui: mkdir -p ~/.termux && echo \"allow-external-apps=true\" >> ~/.termux/termux.properties && termux-reload-settings\n"
+                                + "4. Ripremi Autorizza Termux.");
                 return;
             }
             if (checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED) toast("Permesso Termux già concesso.");
             else requestPermissions(new String[]{permission}, 40);
         })), 14);
-        ui.add(advancedBody, ui.text("Usa l'ambiente utente di Termux da F-Droid, da aprire almeno una volta. Opzionale. Se un comando fallisce all'avvio, togli MCP Android dall'ottimizzazione batteria.", 13, UiKit.MUTED, false), 8);
+        ui.add(advancedBody, ui.text("Usa l'ambiente utente di Termux da F-Droid, da aprire almeno una volta, con allow-external-apps attivo. Opzionale.", 13, UiKit.MUTED, false), 8);
         ui.add(advancedBody, ui.button("Autorizza Shizuku", false, () -> {
             try { toast(ShizukuBridge.requestPermission(this) ? "Permesso Shizuku già concesso." : "Richiesta inviata a Shizuku."); }
             catch (ApiException e) { dialog("Shizuku non disponibile", "Avvia Shizuku e verifica i suoi permessi.\n\nDettaglio: " + e.code); }
@@ -546,7 +547,8 @@ public final class MainActivity extends Activity {
                     "Il sistema ha negato il permesso senza dialogo.\n\n"
                             + "1. Apri Termux una volta e attendi il setup iniziale.\n"
                             + "2. Se lo hai dal Play Store, reinstallalo da F-Droid: la versione Play è obsoleta e non espone il comando esterno.\n"
-                            + "3. Ripremi Autorizza Termux.\n\n"
+                            + "3. In Termux esegui: mkdir -p ~/.termux && echo \"allow-external-apps=true\" >> ~/.termux/termux.properties && termux-reload-settings\n"
+                            + "4. Ripremi Autorizza Termux.\n\n"
                             + "La shell resta opzionale: schermo e file funzionano senza.");
         }
         refreshPermissions();
