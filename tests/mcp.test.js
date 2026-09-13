@@ -40,6 +40,17 @@ test('MCP discovers tools, validates file paths and routes without accessibility
   assert.equal(oversizedChunk.isError, true);
   const selector = await client.callTool({ name: 'android_ui_find', arguments: { textContains: 'OK' } });
   assert.equal(selector.isError, undefined);
+  const ownApp = await client.callTool({ name: 'android_screen_context', arguments: { includeOwnApp: true } });
+  assert.equal(ownApp.isError, undefined);
+  assert.deepEqual(calls.at(-1), {
+    method: 'screen_context',
+    params: { treeMode: 'compact', screenshot: false, includeInvisible: false, maxNodes: 250, includeOwnApp: true },
+  });
+  const ownAppClick = await client.callTool({
+    name: 'android_ui_click', arguments: { text: 'Avvia', includeOwnApp: true },
+  });
+  assert.equal(ownAppClick.isError, undefined);
+  assert.equal(calls.at(-1).params.includeOwnApp, true);
   await client.callTool({ name: 'android_file_read', arguments: { rootId: 'docs', path: 'report.pdf' } });
   assert.deepEqual(calls.at(-1), { method: 'file_read', params: { rootId: 'docs', path: 'report.pdf', offset: 0, length: 65536 } });
   const invalidTap = await client.callTool({ name: 'android_tap', arguments: { x: -1, y: 10 } });

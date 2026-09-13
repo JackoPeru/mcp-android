@@ -1,4 +1,8 @@
-# Acceptance v0.8.8
+# Acceptance v0.8.9
+
+## Delta v0.8.9 (OnePlus 7, Android 12, 13/09/2026)
+
+- Self-driving setup screens: `includeOwnApp` (default off) on `screen_context`, `ui_tree`, `ui_find`, `ui_click` exposes MCP Android windows so an agent can complete grants/Avvia alone. The token view carries a stable `token_secret` id and stays hidden even then; password nodes stay redacted. Bridge/JVM verdi; verifica live (albero proprio popolato, token assente, tocco innocuo) in attesa di telefono ricollegato.
 
 ## Delta v0.8.8 (OnePlus 7, Android 12, 13/09/2026)
 
@@ -161,7 +165,7 @@ Questi punti richiedono collaudo end-to-end sul telefono.
 - Node: v24.19.0.
 - `npm.cmd run check`:
   - coerenza versione: OK;
-  - **36 test Node, tutti passati**.
+  - **53 test Node, tutti passati**.
 - `npm audit --omit=dev`: **0 vulnerabilità**.
 - Test Node v0.8.3 includono:
   - config Tailscale legacy;
@@ -189,15 +193,18 @@ Questi punti richiedono collaudo end-to-end sul telefono.
   - UI dual transport;
   - discovery dei 66 tool MCP tramite stdio.
 - `build-android.ps1`: assembleDebug + testDebugUnitTest + lintDebug completati.
-- Android/JVM: **80 test, 0 failure, 0 error, 0 skipped**:
+- Android/JVM: **103 test, 0 failure, 0 error, 0 skipped**:
   - ActionRegistryTest: 2
+  - AllFilesStoreTest: 8
   - ApkIdentityValidationTest: 4
-  - CapabilityRouterTest: 3
+  - CapabilityRouterTest: 4
   - CoordinateResolverTest: 3
+  - FlowRuntimeTest: 2
   - FlowTraceTest: 1
   - FlowValidationTest: 4
-  - HttpBoundaryTest: 5
+  - HttpBoundaryTest: 6
   - IdleExecutorPolicyTest: 3
+  - JsonArgsTest: 1
   - LanDiscoveryProtocolTest: 3
   - LanDiscoveryRateLimitTest: 3
   - LanSecureChannelTest: 4
@@ -206,14 +213,16 @@ Questi punti richiedono collaudo end-to-end sul telefono.
   - NetworkRecoveryPolicyTest: 3
   - RequestScopeTest: 3
   - RpcEndpointServerPolicyTest: 3
-  - RpcPolicyTest: 2
-  - ScreenSnapshotStoreTest: 4
-  - SecurityValidatorsTest: 5
+  - RpcPolicyTest: 4
+  - ScreenSnapshotStoreTest: 5
+  - SecurityValidatorsTest: 6
+  - ShizukuShellServiceTest: 2
   - TraceJournalTest: 2
   - TransportDiagnosticsTest: 4
   - TransportReconciliationTest: 5
-  - UiLoopPolicyTest: 2
-  - UpdateValidationTest: 2
+  - UiLoopPolicyTest: 3
+  - UpdateManagerTest: 1
+  - UpdateValidationTest: 4
   - VersioningTest: 2
 - Lint: **0 errori, 14 warning**:
   - targetSdk 35 non è l'ultimo SDK disponibile nell'ambiente;
@@ -223,12 +232,12 @@ Questi punti richiedono collaudo end-to-end sul telefono.
 ## APK
 
 - Package: `com.example.androidmcp`.
-- versionCode: **14**.
-- versionName: **0.8.3**.
+- versionCode: **20**.
+- versionName: **0.8.9**.
 - minSdk: **30**.
 - targetSdk: **35**.
-- APK: `dist/mcp-android-0.8.3-debug.apk`.
-- Dimensione: **6,545,202 byte**.
+- APK: `dist/mcp-android-0.8.9-debug.apk`.
+- Dimensione: vedi asset release (verificata via SHA-256 a ogni pubblicazione).
 - SHA-256: `f125c702268c4d529eff3d3d286254514d7070740dbbdbc3f2571fcd0572d175`.
 - APK Signature Scheme v2: **valida**.
 - Signer: **1**.

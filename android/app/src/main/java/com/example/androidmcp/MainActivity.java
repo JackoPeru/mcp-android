@@ -454,6 +454,9 @@ public final class MainActivity extends Activity {
         LinearLayout content = ui.column(); content.setPadding(ui.dp(24), ui.dp(12), ui.dp(24), ui.dp(12));
         content.addView(ui.text("Sessione interrotta per proteggere la tua chiave. Copiala e incollala nella configurazione privata dell'agente, senza condividerla.", 14, UiKit.MUTED, false));
         TextView token = ui.text(value, 16, UiKit.ACCENT, false);
+        // Stable view id so the agent tree can always hide the secret, even
+        // when includeOwnApp exposes our own windows.
+        token.setId(R.id.token_secret);
         token.setTextDirection(View.TEXT_DIRECTION_LTR);
         token.setTypeface(Typeface.MONOSPACE); token.setTextIsSelectable(false);
         token.setPadding(ui.dp(16), ui.dp(16), ui.dp(16), ui.dp(16)); token.setBackground(ui.shape(UiKit.BG, UiKit.BORDER, 12));

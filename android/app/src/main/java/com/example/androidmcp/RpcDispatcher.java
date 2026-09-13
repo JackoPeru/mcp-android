@@ -186,15 +186,16 @@ public final class RpcDispatcher {
     }
 
     private JSONObject screenContext(JSONObject params) throws ApiException {
-        JsonArgs.only(params, "treeMode", "screenshot", "includeInvisible", "maxNodes");
+        JsonArgs.only(params, "treeMode", "screenshot", "includeInvisible", "maxNodes", "includeOwnApp");
         requireUnlocked();
         String treeMode = JsonArgs.optionalString(params, "treeMode", "compact", 16);
         if (!treeMode.equals("compact")) throw new ApiException("INVALID_ARGUMENT", "Unsupported tree mode");
         boolean includeInvisible = JsonArgs.optionalBoolean(params, "includeInvisible", false);
         boolean includeScreenshot = JsonArgs.optionalBoolean(params, "screenshot", false);
+        boolean includeOwnApp = JsonArgs.optionalBoolean(params, "includeOwnApp", false);
         int maxNodes = JsonArgs.optionalInt(params, "maxNodes", 250, 1, 500);
         McpAccessibilityService service = requireAccessibility();
-        JSONObject semantic = service.compactContext(includeInvisible, maxNodes);
+        JSONObject semantic = service.compactContext(includeInvisible, maxNodes, includeOwnApp);
         ScreenSnapshotStore.Snapshot snapshot = snapshots.capture(semantic, includeInvisible, maxNodes);
         JSONObject response = snapshot.responseCopy();
         if (includeScreenshot) attachScreenshot(response, service);
@@ -457,27 +458,29 @@ public final class RpcDispatcher {
     }
 
     private JSONObject uiTree(JSONObject params) throws ApiException {
-        JsonArgs.only(params);
+        JsonArgs.only(params, "includeOwnApp");
         requireUnlocked();
-        return requireAccessibility().uiTree();
+        return requireAccessibility().uiTree(JsonArgs.optionalBoolean(params, "includeOwnApp", false));
     }
 
     private JSONObject uiFind(JSONObject params) throws ApiException {
         JsonArgs.only(params, "text", "textContains", "description", "descriptionContains",
                 "viewId", "className", "packageName", "clickable", "editable", "enabled",
-                "visible", "caseSensitive", "limit");
+                "visible", "caseSensitive", "limit", "includeOwnApp");
         requireUnlocked();
         int limit = JsonArgs.optionalInt(params, "limit", 20, 1, 100);
-        return requireAccessibility().find(selectorFrom(params), limit);
+        boolean includeOwnApp = JsonArgs.optionalBoolean(params, "includeOwnApp", false);
+        return requireAccessibility().find(selectorFrom(params), limit, includeOwnApp);
     }
 
     private JSONObject uiClick(JSONObject params) throws ApiException {
         JsonArgs.only(params, "text", "textContains", "description", "descriptionContains",
                 "viewId", "className", "packageName", "clickable", "editable", "enabled",
-                "visible", "caseSensitive", "index");
+                "visible", "caseSensitive", "index", "includeOwnApp");
         requireUnlocked();
         int index = JsonArgs.optionalInt(params, "index", 0, 0, 99);
-        return requireAccessibility().clickSelector(selectorFrom(params), index);
+        boolean includeOwnApp = JsonArgs.optionalBoolean(params, "includeOwnApp", false);
+        return requireAccessibility().clickSelector(selectorFrom(params), index, includeOwnApp);
     }
 
     private JSONObject uiSetText(JSONObject params) throws ApiException {

@@ -2,4 +2,5 @@
     <item name="ui_overview_scroll" type="id" />
     <item name="ui_access_scroll" type="id" />
     <item name="ui_settings_scroll" type="id" />
+    <item name="token_secret" type="id" />
 </resources>

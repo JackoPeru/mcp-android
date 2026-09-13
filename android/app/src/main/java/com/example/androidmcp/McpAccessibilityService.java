@@ -139,6 +139,15 @@ public final class McpAccessibilityService extends AccessibilityService {
     }
 
     public JSONObject uiTree() throws ApiException {
+        return uiTree(false);
+    }
+
+    /**
+     * Full tree, optionally including this app's own windows so an agent can
+     * drive MCP Android's own setup screens. The token view is always hidden
+     * (see {@link #isHiddenFromAgent}).
+     */
+    public JSONObject uiTree(boolean includeOwnApp) throws ApiException {
         return onMain(() -> {
             AccessibilityNodeInfo root = getRootInActiveWindow();
             if (root == null) {
@@ -147,7 +156,7 @@ public final class McpAccessibilityService extends AccessibilityService {
             Counter counter = new Counter();
             JSONObject result = new JSONObject();
             JSONObject encoded;
-            try { encoded = encodeNode(root, counter, 0); } finally { root.recycle(); }
+            try { encoded = encodeNode(root, counter, 0, includeOwnApp); } finally { root.recycle(); }
             try {
                 result.put("root", encoded == null ? JSONObject.NULL : encoded);
                 result.put("truncated", counter.truncated);
@@ -258,6 +267,10 @@ public final class McpAccessibilityService extends AccessibilityService {
 
     /** Compact flattened context intended for agent loops and semantic snapshotting. */
     public JSONObject compactContext(boolean includeInvisible, int maxNodes) throws ApiException {
+        return compactContext(includeInvisible, maxNodes, false);
+    }
+
+    public JSONObject compactContext(boolean includeInvisible, int maxNodes, boolean includeOwnApp) throws ApiException {
         if (maxNodes < 1 || maxNodes > MAX_NODES) {
             throw new ApiException("INVALID_ARGUMENT", "Invalid compact node limit");
         }
@@ -268,7 +281,7 @@ public final class McpAccessibilityService extends AccessibilityService {
             JSONArray nodes = new JSONArray();
             AccessibilityNodeInfo focused = null;
             try {
-                collectCompact(root, "0", includeInvisible, nodes, counter);
+                collectCompact(root, "0", includeInvisible, nodes, counter, includeOwnApp);
                 focused = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT);
                 Point size = screenSize();
                 WindowManager manager = (WindowManager) getSystemService(WINDOW_SERVICE);
@@ -311,6 +324,10 @@ public final class McpAccessibilityService extends AccessibilityService {
     }
 
     public JSONObject find(JSONObject selectorJson, int limit) throws ApiException {
+        return find(selectorJson, limit, false);
+    }
+
+    public JSONObject find(JSONObject selectorJson, int limit, boolean includeOwnApp) throws ApiException {
         UiSelector selector = UiSelector.from(selectorJson);
         if (limit < 1 || limit > 100) throw new ApiException("INVALID_ARGUMENT", "Invalid match limit");
         return onMain(() -> {
@@ -318,7 +335,7 @@ public final class McpAccessibilityService extends AccessibilityService {
             if (root == null) throw new ApiException("UI_UNAVAILABLE", "No active accessibility window");
             JSONArray matches = new JSONArray();
             MatchCounter counter = new MatchCounter(limit);
-            try { collectMatches(root, selector, "0", matches, counter); }
+            try { collectMatches(root, selector, "0", matches, counter, includeOwnApp); }
             finally { root.recycle(); }
             JSONObject result = new JSONObject();
             try {
@@ -333,13 +350,17 @@ public final class McpAccessibilityService extends AccessibilityService {
     }
 
     public JSONObject clickSelector(JSONObject selectorJson, int index) throws ApiException {
+        return clickSelector(selectorJson, index, false);
+    }
+
+    public JSONObject clickSelector(JSONObject selectorJson, int index, boolean includeOwnApp) throws ApiException {
         UiSelector selector = UiSelector.from(selectorJson);
         if (index < 0 || index > 99) throw new ApiException("INVALID_ARGUMENT", "Invalid match index");
         return onMain(() -> {
             AccessibilityNodeInfo root = getRootInActiveWindow();
             if (root == null) throw new ApiException("UI_UNAVAILABLE", "No active accessibility window");
             ActionResult result = new ActionResult(index);
-            try { clickMatch(root, selector, result); }
+            try { clickMatch(root, selector, result, includeOwnApp); }
             finally { root.recycle(); }
             if (!result.found) throw new ApiException("NOT_FOUND", "Matching UI element not found");
             if (!result.performed) throw new ApiException("ACTION_REJECTED", "Matching element is not clickable");
@@ -537,14 +558,25 @@ public final class McpAccessibilityService extends AccessibilityService {
         return path;
     }
 
-    private JSONObject encodeNode(AccessibilityNodeInfo node, Counter counter, int depth) throws ApiException {
+    /**
+     * Our own windows stay hidden by default so the token can never be scraped
+     * through our own API. With {@code includeOwnApp} an agent may drive MCP
+     * Android's setup screens; the token view itself is still always hidden.
+     */
+    private boolean isHiddenFromAgent(AccessibilityNodeInfo node, boolean includeOwnApp) {
+        if (node == null) return true;
+        if (String.valueOf(node.getViewIdResourceName()).endsWith("/token_secret")) return true;
+        return !includeOwnApp && getPackageName().equals(String.valueOf(node.getPackageName()));
+    }
+
+    private JSONObject encodeNode(AccessibilityNodeInfo node, Counter counter, int depth, boolean includeOwnApp) throws ApiException {
         RequestScope.checkCurrent();
         if (node == null || depth > 64 || counter.count >= MAX_NODES) {
             counter.truncated = true;
             return null;
         }
         String packageName = String.valueOf(node.getPackageName());
-        if (getPackageName().equals(packageName)) {
+        if (isHiddenFromAgent(node, includeOwnApp)) {
             return null;
         }
         counter.count++;
@@ -574,7 +606,7 @@ public final class McpAccessibilityService extends AccessibilityService {
             for (int i = 0; i < node.getChildCount(); i++) {
                 AccessibilityNodeInfo childNode = node.getChild(i);
                 JSONObject child;
-                try { child = encodeNode(childNode, counter, depth + 1); }
+                try { child = encodeNode(childNode, counter, depth + 1, includeOwnApp); }
                 finally { if (childNode != null) childNode.recycle(); }
                 if (child != null) {
                     children.put(child);
@@ -591,14 +623,14 @@ public final class McpAccessibilityService extends AccessibilityService {
     }
 
     private void collectMatches(AccessibilityNodeInfo node, UiSelector selector, String path,
-                                JSONArray matches, MatchCounter counter) throws ApiException {
+                                JSONArray matches, MatchCounter counter, boolean includeOwnApp) throws ApiException {
         RequestScope.checkCurrent();
         if (node == null || counter.seen >= MAX_NODES || matches.length() >= counter.limit) {
             if (node != null) counter.truncated = true;
             return;
         }
         counter.seen++;
-        if (!getPackageName().equals(String.valueOf(node.getPackageName())) && selector.matches(node)) {
+        if (!isHiddenFromAgent(node, includeOwnApp) && selector.matches(node)) {
             matches.put(encodeMatch(node, path));
             if (matches.length() >= counter.limit) {
                 counter.truncated = true;
@@ -607,22 +639,21 @@ public final class McpAccessibilityService extends AccessibilityService {
         }
         for (int i = 0; i < node.getChildCount(); i++) {
             AccessibilityNodeInfo child = node.getChild(i);
-            try { collectMatches(child, selector, path + "/" + i, matches, counter); }
+            try { collectMatches(child, selector, path + "/" + i, matches, counter, includeOwnApp); }
             finally { if (child != null) child.recycle(); }
             if (counter.truncated && matches.length() >= counter.limit) break;
         }
     }
 
     private void collectCompact(AccessibilityNodeInfo node, String path, boolean includeInvisible,
-                                JSONArray nodes, CompactCounter counter) throws ApiException {
+                                JSONArray nodes, CompactCounter counter, boolean includeOwnApp) throws ApiException {
         RequestScope.checkCurrent();
         if (node == null || counter.count >= counter.limit) {
             if (node != null) counter.truncated = true;
             return;
         }
         String packageName = String.valueOf(node.getPackageName());
-        boolean own = getPackageName().equals(packageName);
-        boolean include = !own && (includeInvisible || node.isVisibleToUser());
+        boolean include = !isHiddenFromAgent(node, includeOwnApp) && (includeInvisible || node.isVisibleToUser());
         if (include) {
             String className = capped(node.getClassName());
             if (className.toLowerCase(Locale.ROOT).contains("webview")) counter.webViewDetected = true;
@@ -633,7 +664,7 @@ public final class McpAccessibilityService extends AccessibilityService {
         if (counter.count >= counter.limit) return;
         for (int i = 0; i < node.getChildCount(); i++) {
             AccessibilityNodeInfo child = node.getChild(i);
-            try { collectCompact(child, path + "/" + i, includeInvisible, nodes, counter); }
+            try { collectCompact(child, path + "/" + i, includeInvisible, nodes, counter, includeOwnApp); }
             finally { if (child != null) child.recycle(); }
             if (counter.count >= counter.limit) {
                 if (i + 1 < node.getChildCount()) counter.truncated = true;
@@ -670,11 +701,11 @@ public final class McpAccessibilityService extends AccessibilityService {
         }
     }
 
-    private boolean clickMatch(AccessibilityNodeInfo node, UiSelector selector, ActionResult result)
+    private boolean clickMatch(AccessibilityNodeInfo node, UiSelector selector, ActionResult result, boolean includeOwnApp)
             throws ApiException {
         RequestScope.checkCurrent();
         if (node == null || result.scanned++ >= MAX_NODES) return false;
-        if (!getPackageName().equals(String.valueOf(node.getPackageName())) && selector.matches(node)) {
+        if (!isHiddenFromAgent(node, includeOwnApp) && selector.matches(node)) {
             if (result.current++ == result.target) {
                 result.found = true;
                 result.performed = performClick(node);
@@ -684,7 +715,7 @@ public final class McpAccessibilityService extends AccessibilityService {
         for (int i = 0; i < node.getChildCount(); i++) {
             AccessibilityNodeInfo child = node.getChild(i);
             try {
-                if (clickMatch(child, selector, result)) return true;
+                if (clickMatch(child, selector, result, includeOwnApp)) return true;
             } finally { if (child != null) child.recycle(); }
         }
         return false;
