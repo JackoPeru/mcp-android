@@ -238,7 +238,7 @@ public final class MainActivity extends Activity {
             if (checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED) toast("Permesso Termux già concesso.");
             else requestPermissions(new String[]{permission}, 40);
         })), 14);
-        ui.add(advancedBody, ui.text("Usa l'ambiente utente di Termux da F-Droid, da aprire almeno una volta. Opzionale.", 13, UiKit.MUTED, false), 8);
+        ui.add(advancedBody, ui.text("Usa l'ambiente utente di Termux da F-Droid, da aprire almeno una volta. Opzionale. Se un comando fallisce all'avvio, togli MCP Android dall'ottimizzazione batteria.", 13, UiKit.MUTED, false), 8);
         ui.add(advancedBody, ui.button("Autorizza Shizuku", false, () -> {
             try { toast(ShizukuBridge.requestPermission(this) ? "Permesso Shizuku già concesso." : "Richiesta inviata a Shizuku."); }
             catch (ApiException e) { dialog("Shizuku non disponibile", "Avvia Shizuku e verifica i suoi permessi.\n\nDettaglio: " + e.code); }

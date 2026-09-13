@@ -1,4 +1,9 @@
-# Acceptance v0.8.4
+# Acceptance v0.8.5
+
+## Delta v0.8.5 (OnePlus 7, Android 12, 13/09/2026)
+
+- Fix avvio comandi Termux bloccato dal sistema (`Background start not allowed ... startFg?=false` in logcat anche con foreground service attivo): fallback a `startForegroundService`, sicuro perché Termux (targetSdk 28) è esente dal timeout foreground. Verificato live con `id`/`pwd`/stdin.
+- Nota batteria: su OxygenOS aggressivo, togliere MCP Android dall'ottimizzazione batteria se i comandi falliscono all'avvio.
 
 ## Delta v0.8.4 (verificato su OnePlus 7, Android 12, il 13/09/2026)
 

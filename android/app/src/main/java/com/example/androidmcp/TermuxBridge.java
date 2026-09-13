@@ -93,6 +93,20 @@ public final class TermuxBridge {
         command.putExtra(EXTRA_PENDING, pending);
         try {
             context.startService(command);
+        } catch (IllegalStateException e) {
+            // Android 12+ (and aggressive OEMs) can reject startService() as a
+            // background start even while our foreground service runs (seen as
+            // "Background start not allowed ... startFg?=false" in logcat).
+            // Retry as a foreground-service start: Termux targets an old SDK
+            // so it is exempt from the startForeground timeout and just runs
+            // the command. The same PendingIntent/requestId is reused, so the
+            // result still routes to the future registered above.
+            try {
+                context.startForegroundService(command);
+            } catch (RuntimeException retryFailed) {
+                WAITING.remove(id);
+                throw new ApiException("TERMUX_UNAVAILABLE", "Unable to start Termux command");
+            }
         } catch (SecurityException e) {
             WAITING.remove(id);
             throw new ApiException("TERMUX_PERMISSION_REQUIRED", "Termux RUN_COMMAND permission denied");
