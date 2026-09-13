@@ -1,4 +1,9 @@
-# Acceptance v0.8.6
+# Acceptance v0.8.7
+
+## Delta v0.8.7 (OnePlus 7, Android 12, 13/09/2026)
+
+- Accesso completo opzionale dietro flag: `MANAGE_EXTERNAL_STORAGE` + interruttore in-app espone la radice `all-files` (tutta la memoria condivisa, senza più cartelle una a una). `Android/data` e `Android/obb` restano bloccati con `OPERATION_UNSUPPORTED` (limite di sistema). Stesso contratto JSON/codici del SAF, test JVM dedicati, verificato live (`roots`, `list`, `read`, `write`+`delete` di pulizia, traversal e `data` rifiutati).
+- Patina di sessione: velo fullscreen non interagibile (`SYSTEM_ALERT_WINDOW`, solo con consenso) mentre l'agente è attivo; sparisce allo STOP. Per gli screenshot l'agente non la vede mai: `screenshot()` la sospende per un frame e la ripristina in `finally` (se la sessione cade nel mezzo, resta giustamente spenta).
 
 ## Delta v0.8.6 (OnePlus 7, Android 12, 13/09/2026)
 

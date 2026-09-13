@@ -412,6 +412,15 @@ public final class McpAccessibilityService extends AccessibilityService {
     }
 
     public byte[] screenshot() throws ApiException {
+        android.view.View veil = SessionVeil.suspendForCapture();
+        try {
+            return screenshotInner();
+        } finally {
+            SessionVeil.restoreAfterCapture(this, veil);
+        }
+    }
+
+    private byte[] screenshotInner() throws ApiException {
         java.util.concurrent.CompletableFuture<ScreenshotResult> future = new java.util.concurrent.CompletableFuture<>();
         RequestScope scope = RequestScope.CURRENT.get();
         Runnable start = () -> {

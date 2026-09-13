@@ -48,7 +48,7 @@ public final class MainActivity extends Activity {
     private boolean advancedExpanded, startAfterPermission, accessibilityAllowed, notificationsAllowed;
     private int rootCount;
     private TextView heroBadge, heroTitle, heroDescription, errorMessage, lanValue, tailscaleValue;
-    private TextView preferredLabel, accessibilityBadge, notificationBadge, folderBadge, updateStatus;
+    private TextView preferredLabel, accessibilityBadge, notificationBadge, folderBadge, allFilesBadge, overlayBadge, updateStatus;
     private TextView updateLatest, updateNotes, updateProgressLabel;
     private TextView setupDescription, advancedLabel;
     private Button sessionButton, setupButton, updateDownloadButton, updateInstallButton;
@@ -206,6 +206,10 @@ public final class MainActivity extends Activity {
         ui.heading(screen, "phone", "Schermo e gesti", "Consenti all'agente di leggere lo schermo, toccare, scorrere e scrivere.");
         accessibilityBadge = ui.badge("Da autorizzare"); ui.add(screen, accessibilityBadge, 14);
         ui.add(screen, ui.button("Gestisci Accessibilità", false, () -> openSettings(Settings.ACTION_ACCESSIBILITY_SETTINGS)), 14);
+        overlayBadge = ui.text("", 13, UiKit.MUTED, false); ui.add(screen, overlayBadge, 12);
+        ui.add(screen, ui.button("Avviso visivo sessione", false, () -> safely(() ->
+                startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        android.net.Uri.parse("package:" + getPackageName()))))), 14);
         LinearLayout notifications = ui.card(body);
         ui.heading(notifications, "bell", "Notifiche e media", "Accesso opzionale alle notifiche e ai controlli di riproduzione.");
         notificationBadge = ui.badge("Opzionale"); ui.add(notifications, notificationBadge, 14);
@@ -215,6 +219,22 @@ public final class MainActivity extends Activity {
         rootList = ui.column(); body.addView(rootList);
         ui.add(body, ui.button("Aggiungi una cartella", true, this::chooseFolder), 14);
         ui.add(body, ui.text("Android ti farà scegliere una cartella. L'agente potrà usare solo gli accessi concessi dal sistema.", 13, UiKit.MUTED, false), 12);
+        allFilesBadge = ui.text("", 13, UiKit.MUTED, false); ui.add(body, allFilesBadge, 12);
+        ui.add(body, ui.button("Usa tutti i file", false, () -> safely(() -> {
+            if (AllFilesAccess.isActive(this)) {
+                AllFilesAccess.setEnabled(this, false);
+                McpForegroundService.stopNow(); refreshRoots(); refreshPermissions(); renderStatus();
+                toast("Accesso completo disattivato. Sessione interrotta.");
+            } else if (!AllFilesAccess.isGranted()) {
+                AllFilesAccess.setEnabled(this, true);
+                startActivity(AllFilesAccess.manageIntent(this));
+                toast("Attiva \"Tutti i file\" per MCP Android, poi torna e premi Avvia.");
+            } else {
+                AllFilesAccess.setEnabled(this, true);
+                refreshRoots(); refreshPermissions(); renderStatus();
+                toast("Accesso completo attivato: le cartelle singole non servono più.");
+            }
+        })), 14);
         LinearLayout advanced = ui.card(body);
         LinearLayout header = ui.row();
         header.addView(ui.icon("terminal", UiKit.MUTED, 24), new LinearLayout.LayoutParams(ui.dp(24), ui.dp(24)));
@@ -367,6 +387,11 @@ public final class MainActivity extends Activity {
         accessibilityBadge.setTextColor(accessibilityAllowed ? UiKit.ACCENT : UiKit.WARNING);
         replace(notificationBadge, notificationsAllowed ? "Autorizzate" : "Opzionali · non autorizzate");
         notificationBadge.setTextColor(notificationsAllowed ? UiKit.ACCENT : UiKit.MUTED);
+        if (overlayBadge != null) {
+            replace(overlayBadge, SessionVeil.canShow(this)
+                    ? "Patina di sessione: attiva — lo schermo si colora mentre l'agente agisce."
+                    : "Patina di sessione: spenta — consenti \"Sovrapposizione\" per vederla.");
+        }
         replace(setupDescription, !accessibilityAllowed ? "Vuoi controllare lo schermo? Autorizza Accessibilità. Per usare soltanto i file non è necessaria."
                 : rootCount == 0 ? "Il controllo schermo è configurato. Puoi aggiungere una cartella oppure collegare subito il tuo agente."
                 : "Schermo e cartelle sono configurati. Trovi il token per il tuo agente in Impostazioni.");
@@ -376,6 +401,13 @@ public final class MainActivity extends Activity {
         rootList.removeAllViews();
         java.util.List<FileRootStore.Root> current = roots.list(); rootCount = current.size();
         replace(folderBadge, rootCount == 0 ? "Nessuna cartella autorizzata" : rootCount + (rootCount == 1 ? " cartella autorizzata" : " cartelle autorizzate"));
+        if (allFilesBadge != null) {
+            replace(allFilesBadge, AllFilesAccess.isActive(this)
+                    ? "Tutti i file: attivo — le cartelle singole non servono più."
+                    : AllFilesAccess.isEnabled(this)
+                    ? "Tutti i file: da attivare nelle Impostazioni di sistema."
+                    : "Oppure abilita l'accesso completo a tutta la memoria condivisa.");
+        }
         if (current.isEmpty()) {
             LinearLayout empty = ui.card(rootList);
             ui.heading(empty, "folder", "Un posto per i tuoi file", "Scegli una cartella da condividere. Potrai revocare l'accesso quando vuoi.");

@@ -168,7 +168,8 @@ public final class RpcDispatcher {
             McpAccessibilityService active = McpAccessibilityService.active();
             result.put("nativeOperationInFlight", active != null && active.operationInFlight());
             result.put("locked", isLocked());
-            result.put("fileRoots", roots.list().size());
+            result.put("fileRoots", roots.list().size() + (AllFilesAccess.isActive(context) ? 1 : 0));
+            result.put("allFilesActive", AllFilesAccess.isActive(context));
             result.put("displayWidth", display.x);
             result.put("displayHeight", display.y);
             String error = McpForegroundService.error();
@@ -896,9 +897,27 @@ public final class RpcDispatcher {
         }
     }
 
+    private AllFilesStore allFiles() throws ApiException {
+        return new AllFilesStore(android.os.Environment.getExternalStorageDirectory());
+    }
+
+    private boolean useAllFiles(String rootId) {
+        return AllFilesStore.ROOT_ID.equals(rootId) && AllFilesAccess.isActive(context);
+    }
+
     private JSONObject fileRoots(JSONObject params) throws ApiException {
         JsonArgs.only(params);
         JSONArray result = new JSONArray();
+        if (AllFilesAccess.isActive(context)) {
+            try {
+                JSONObject entry = allFiles().stat(AllFilesStore.ROOT_ID, "");
+                entry.put("rootId", AllFilesStore.ROOT_ID);
+                entry.put("name", "Memoria condivisa");
+                result.put(entry);
+            } catch (ApiException ignored) {
+                // Shared storage momentarily unavailable: advertise SAF roots only.
+            } catch (JSONException e) { throw new ApiException("INTERNAL", "Unable to encode roots"); }
+        }
         for (FileRootStore.Root root : roots.list()) {
             try {
                 JSONObject entry = files.stat(root.id, "");
@@ -930,6 +949,7 @@ public final class RpcDispatcher {
         if (limit < 1 || limit > 200) {
             throw new ApiException("INVALID_ARGUMENT", "Invalid limit");
         }
+        if (useAllFiles(rootId)) return allFiles().list(rootId, path, offset, (int) limit);
         return files.list(rootId, path, offset, (int) limit);
     }
 
@@ -938,6 +958,7 @@ public final class RpcDispatcher {
         String rootId = JsonArgs.requiredString(params, "rootId", 80);
         String path = params.has("path")
                 ? JsonArgs.requiredStringAllowEmpty(params, "path", SecurityValidators.MAX_PATH_LENGTH) : "";
+        if (useAllFiles(rootId)) return allFiles().stat(rootId, path);
         return files.stat(rootId, path);
     }
 
@@ -948,6 +969,7 @@ public final class RpcDispatcher {
                 ? JsonArgs.requiredStringAllowEmpty(params, "path", SecurityValidators.MAX_PATH_LENGTH) : "";
         long offset = JsonArgs.optionalLong(params, "offset", 0);
         long length = JsonArgs.optionalLong(params, "length", 65_536);
+        if (useAllFiles(rootId)) return allFiles().read(rootId, path, offset, length);
         return files.read(rootId, path, offset, length);
     }
 
@@ -958,6 +980,7 @@ public final class RpcDispatcher {
         String query = JsonArgs.optionalStringAllowEmpty(params, "query", "", 255);
         int maxDepth = JsonArgs.optionalInt(params, "maxDepth", 8, 0, 16);
         int limit = JsonArgs.optionalInt(params, "limit", 100, 1, SecurityValidators.MAX_SEARCH_RESULTS);
+        if (useAllFiles(rootId)) return allFiles().search(rootId, path, query, maxDepth, limit);
         return files.search(rootId, path, query, maxDepth, limit);
     }
 
@@ -970,40 +993,51 @@ public final class RpcDispatcher {
         long offset = JsonArgs.optionalLong(params, "offset", 0);
         boolean truncate = JsonArgs.optionalBoolean(params, "truncate", offset == 0);
         String mime = JsonArgs.optionalString(params, "mimeType", "application/octet-stream", 200);
+        if (useAllFiles(rootId)) return allFiles().write(rootId, path, data, offset, truncate, mime);
         return files.write(rootId, path, data, offset, truncate, mime);
     }
 
     private JSONObject fileMkdir(JSONObject params) throws ApiException {
         JsonArgs.only(params, "rootId", "path");
-        return files.mkdir(JsonArgs.requiredString(params, "rootId", 80),
-                JsonArgs.requiredString(params, "path", SecurityValidators.MAX_PATH_LENGTH));
+        String rootId = JsonArgs.requiredString(params, "rootId", 80);
+        String path = JsonArgs.requiredString(params, "path", SecurityValidators.MAX_PATH_LENGTH);
+        if (useAllFiles(rootId)) return allFiles().mkdir(rootId, path);
+        return files.mkdir(rootId, path);
     }
 
     private JSONObject fileRename(JSONObject params) throws ApiException {
         JsonArgs.only(params, "rootId", "path", "newName");
-        return files.rename(JsonArgs.requiredString(params, "rootId", 80),
-                JsonArgs.requiredString(params, "path", SecurityValidators.MAX_PATH_LENGTH),
-                JsonArgs.requiredString(params, "newName", 255));
+        String rootId = JsonArgs.requiredString(params, "rootId", 80);
+        String path = JsonArgs.requiredString(params, "path", SecurityValidators.MAX_PATH_LENGTH);
+        String newName = JsonArgs.requiredString(params, "newName", 255);
+        if (useAllFiles(rootId)) return allFiles().rename(rootId, path, newName);
+        return files.rename(rootId, path, newName);
     }
 
     private JSONObject fileMove(JSONObject params) throws ApiException {
         JsonArgs.only(params, "rootId", "path", "targetDirectory");
-        return files.move(JsonArgs.requiredString(params, "rootId", 80),
-                JsonArgs.requiredString(params, "path", SecurityValidators.MAX_PATH_LENGTH),
-                JsonArgs.optionalStringAllowEmpty(params, "targetDirectory", "", SecurityValidators.MAX_PATH_LENGTH));
+        String rootId = JsonArgs.requiredString(params, "rootId", 80);
+        String path = JsonArgs.requiredString(params, "path", SecurityValidators.MAX_PATH_LENGTH);
+        String target = JsonArgs.optionalStringAllowEmpty(params, "targetDirectory", "", SecurityValidators.MAX_PATH_LENGTH);
+        if (useAllFiles(rootId)) return allFiles().move(rootId, path, target);
+        return files.move(rootId, path, target);
     }
 
     private JSONObject fileCopy(JSONObject params) throws ApiException {
         JsonArgs.only(params, "rootId", "path", "targetDirectory");
-        return files.copy(JsonArgs.requiredString(params, "rootId", 80),
-                JsonArgs.requiredString(params, "path", SecurityValidators.MAX_PATH_LENGTH),
-                JsonArgs.optionalStringAllowEmpty(params, "targetDirectory", "", SecurityValidators.MAX_PATH_LENGTH));
+        String rootId = JsonArgs.requiredString(params, "rootId", 80);
+        String path = JsonArgs.requiredString(params, "path", SecurityValidators.MAX_PATH_LENGTH);
+        String target = JsonArgs.optionalStringAllowEmpty(params, "targetDirectory", "", SecurityValidators.MAX_PATH_LENGTH);
+        if (useAllFiles(rootId)) return allFiles().copy(rootId, path, target);
+        return files.copy(rootId, path, target);
     }
 
     private JSONObject fileDelete(JSONObject params) throws ApiException {
         JsonArgs.only(params, "rootId", "path");
-        return files.delete(JsonArgs.requiredString(params, "rootId", 80),
-                JsonArgs.requiredString(params, "path", SecurityValidators.MAX_PATH_LENGTH));
+        String rootId = JsonArgs.requiredString(params, "rootId", 80);
+        String path = JsonArgs.requiredString(params, "path", SecurityValidators.MAX_PATH_LENGTH);
+        if (useAllFiles(rootId)) return allFiles().delete(rootId, path);
+        return files.delete(rootId, path);
     }
 
     private McpAccessibilityService requireActionService() throws ApiException {

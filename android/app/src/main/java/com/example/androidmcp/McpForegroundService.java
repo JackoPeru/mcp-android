@@ -47,6 +47,7 @@ public final class McpForegroundService extends Service {
             SecretStore.current(this);
             transportManager.start();
             lastError = transportManager.error();
+            SessionVeil.show(this);
         } catch (Exception e) {
             lastError = "Avvio fallito: impossibile inizializzare il controllo remoto.";
             enterLowPowerIdle();
@@ -113,6 +114,7 @@ public final class McpForegroundService extends Service {
 
     private void enterLowPowerIdle() {
         sessionEnabled = false;
+        SessionVeil.hide();
         McpAccessibilityService.setRemoteSessionActive(false);
         McpNotificationService.suspendForIdle();
         if (transportManager != null) transportManager.stop();
