@@ -232,7 +232,8 @@ public final class SafFileStore {
     public JSONObject write(String rootId, String path, String base64, long offset,
                             boolean truncate, String mimeType) throws ApiException {
         requirePath(path);
-        if (path.isEmpty() || base64 == null || base64.length() > 400_000
+        if (path.isEmpty() || base64 == null
+                || base64.length() > SecurityValidators.MAX_FILE_WRITE_BASE64_CHARS
                 || mimeType == null || mimeType.isEmpty() || mimeType.length() > 200) {
             throw new ApiException("INVALID_ARGUMENT", "Invalid write");
         }
@@ -277,7 +278,16 @@ public final class SafFileStore {
         try (ParcelFileDescriptor.AutoCloseOutputStream output
                      = new ParcelFileDescriptor.AutoCloseOutputStream(descriptor)) {
             FileChannel channel = output.getChannel();
-            channel.position(offset);
+            try {
+                channel.position(offset);
+            } catch (IOException unsupportedSeek) {
+                // Mirror read(): providers without seek (Drive, MTP, some OEM)
+                // can only stream from 0. Report SEEK_UNSUPPORTED instead of a
+                // generic WRITE_FAILED so the agent can fall back to truncate.
+                if (offset > 0) {
+                    throw new ApiException("SEEK_UNSUPPORTED", "Provider does not support offsets");
+                }
+            }
             ByteBuffer buffer = ByteBuffer.wrap(data);
             while (buffer.hasRemaining()) {
                 RequestScope.checkCurrent();

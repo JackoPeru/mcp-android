@@ -22,7 +22,13 @@ public final class ScreenSnapshotStore {
     private long nextId = 1;
 
     public synchronized Snapshot capture(JSONObject context) throws ApiException {
+        return capture(context, false, 250);
+    }
+
+    public synchronized Snapshot capture(JSONObject context, boolean includeInvisible, int maxNodes)
+            throws ApiException {
         if (context == null) throw new ApiException("INVALID_ARGUMENT", "Missing screen context");
+        if (maxNodes < 1 || maxNodes > 500) throw new ApiException("INVALID_ARGUMENT", "Invalid capture node limit");
         JSONObject copy;
         try {
             copy = new JSONObject(context.toString());
@@ -31,7 +37,7 @@ public final class ScreenSnapshotStore {
         }
         long id = nextId++;
         String hash = hash(copy);
-        Snapshot snapshot = new Snapshot(id, hash, copy);
+        Snapshot snapshot = new Snapshot(id, hash, copy, includeInvisible, maxNodes);
         snapshots.addLast(snapshot);
         while (snapshots.size() > MAX_SNAPSHOTS) snapshots.removeFirst();
         return snapshot;
@@ -51,6 +57,16 @@ public final class ScreenSnapshotStore {
             if (snapshot.id == id) return snapshot;
         }
         throw new ApiException("UNKNOWN_SNAPSHOT", "Screen snapshot is no longer available");
+    }
+
+    public synchronized Snapshot findByHash(String uiHash) {
+        if (uiHash == null || uiHash.isEmpty()) return null;
+        java.util.Iterator<Snapshot> iterator = snapshots.descendingIterator();
+        while (iterator.hasNext()) {
+            Snapshot snapshot = iterator.next();
+            if (uiHash.equals(snapshot.uiHash)) return snapshot;
+        }
+        return null;
     }
 
     public synchronized JSONObject diff(long fromId, long toId) throws ApiException {
@@ -178,11 +194,15 @@ public final class ScreenSnapshotStore {
         public final long id;
         public final String uiHash;
         public final JSONObject context;
+        public final boolean includeInvisible;
+        public final int maxNodes;
 
-        Snapshot(long id, String uiHash, JSONObject context) {
+        Snapshot(long id, String uiHash, JSONObject context, boolean includeInvisible, int maxNodes) {
             this.id = id;
             this.uiHash = uiHash;
             this.context = context;
+            this.includeInvisible = includeInvisible;
+            this.maxNodes = maxNodes;
         }
 
         public JSONObject responseCopy() throws ApiException {

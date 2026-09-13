@@ -16,6 +16,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -34,7 +36,7 @@ public final class ShizukuShellService extends IShizukuShellService.Stub {
     public synchronized String execute(String script, String stdin, String workdir, int timeoutMs) {
         JSONObject result = new JSONObject();
         Process process = null;
-        ExecutorService readers = Executors.newFixedThreadPool(2);
+        ExecutorService readers = Executors.newFixedThreadPool(3);
         try {
             if (script == null || script.isEmpty() || script.length() > SecurityValidators.MAX_SHELL_INPUT
                     || stdin == null || stdin.length() > SecurityValidators.MAX_SHELL_INPUT
@@ -43,8 +45,11 @@ public final class ShizukuShellService extends IShizukuShellService.Stub {
                 return error("INVALID_ARGUMENT", "Invalid Shizuku shell request");
             }
 
+            if (workdir.indexOf('\0') >= 0 || hasParentSegment(workdir)) {
+                return error("INVALID_ARGUMENT", "Invalid Shizuku shell request");
+            }
             ProcessBuilder builder = new ProcessBuilder("/system/bin/sh", "-c", script);
-            File directory = new File(workdir.isEmpty() ? "/data/local/tmp" : workdir);
+            File directory = new File(workdir.isEmpty() ? "/data/local/tmp" : workdir).getCanonicalFile();
             if (!directory.isDirectory()) {
                 return error("INVALID_WORKDIR", "Working directory does not exist");
             }
@@ -54,25 +59,38 @@ public final class ShizukuShellService extends IShizukuShellService.Stub {
             final Process running = process;
             Future<Captured> stdout = readers.submit(() -> capture(running.getInputStream()));
             Future<Captured> stderr = readers.submit(() -> capture(running.getErrorStream()));
-
-            if (!stdin.isEmpty()) {
-                process.getOutputStream().write(stdin.getBytes(StandardCharsets.UTF_8));
+            Future<?> stdinWrite = readers.submit(() -> {
+                try {
+                    if (!stdin.isEmpty()) {
+                        running.getOutputStream().write(stdin.getBytes(StandardCharsets.UTF_8));
+                    }
+                    running.getOutputStream().close();
+                } catch (IOException ignored) { }
+            });
+            long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs);
+            boolean finished = awaitProcessAndStdin(process, stdinWrite, deadline);
+            Captured out = new Captured("", 0, false);
+            Captured err = new Captured("", 0, false);
+            if (finished) {
+                try {
+                    out = getBefore(stdout, deadline);
+                    err = getBefore(stderr, deadline);
+                } catch (TimeoutException e) {
+                    finished = false;
+                }
             }
-            process.getOutputStream().close();
-
-            boolean finished = process.waitFor(timeoutMs, TimeUnit.MILLISECONDS);
             if (!finished) {
+                stdinWrite.cancel(true);
                 process.destroy();
                 if (!process.waitFor(300, TimeUnit.MILLISECONDS)) process.destroyForcibly();
+                stdout.cancel(true);
+                stderr.cancel(true);
                 result.put("timedOut", true);
                 result.put("outcomeUnknown", true);
             } else {
                 result.put("timedOut", false);
                 result.put("outcomeUnknown", false);
             }
-
-            Captured out = stdout.get(1, TimeUnit.SECONDS);
-            Captured err = stderr.get(1, TimeUnit.SECONDS);
             result.put("stdout", out.text);
             result.put("stderr", err.text);
             result.put("stdoutBytes", out.bytes);
@@ -89,6 +107,29 @@ public final class ShizukuShellService extends IShizukuShellService.Stub {
             if (process != null && process.isAlive()) process.destroyForcibly();
             readers.shutdownNow();
         }
+    }
+
+    static boolean awaitProcessAndStdin(Process process, Future<?> stdinWrite, long deadlineNanos)
+            throws InterruptedException {
+        long remaining = deadlineNanos - System.nanoTime();
+        if (remaining <= 0 || !process.waitFor(remaining, TimeUnit.NANOSECONDS)) return false;
+        remaining = deadlineNanos - System.nanoTime();
+        if (remaining <= 0) return false;
+        try {
+            stdinWrite.get(remaining, TimeUnit.NANOSECONDS);
+            return true;
+        } catch (ExecutionException e) {
+            return true;
+        } catch (TimeoutException e) {
+            return false;
+        }
+    }
+
+    private static <T> T getBefore(Future<T> future, long deadlineNanos)
+            throws InterruptedException, ExecutionException, TimeoutException {
+        long remaining = deadlineNanos - System.nanoTime();
+        if (remaining <= 0) throw new TimeoutException();
+        return future.get(remaining, TimeUnit.NANOSECONDS);
     }
 
     @Override
@@ -110,6 +151,13 @@ public final class ShizukuShellService extends IShizukuShellService.Stub {
             if (read > remaining) truncated = true;
         }
         return new Captured(kept.toString("UTF-8"), total, truncated);
+    }
+
+    static boolean hasParentSegment(String value) {
+        for (String part : value.split("/")) {
+            if ("..".equals(part)) return true;
+        }
+        return false;
     }
 
     private static String error(String code, String message) {

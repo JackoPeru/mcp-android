@@ -17,6 +17,11 @@ test('Android updater follows the HermesHub check-download-install flow', () => 
   assert.doesNotMatch(updater, /PackageInstaller/);
   assert.doesNotMatch(updater, /resumePending\(/);
   assert.ok(updater.indexOf('verifyApkIdentity(activity, partial, release)') < updater.indexOf('partial.renameTo(ready)'));
+  assert.match(updater, /LAST_RELEASE/);
+  assert.match(updater, /restoreCachedRelease/);
+  assert.match(updater, /expectedSha256/);
+  assert.match(updater, /requireMatchingSha256\(ready, release\.expectedSha256\)/);
+  assert.match(updater, /requireMatchingSha256\(apk, release\.expectedSha256\)/);
 });
 
 test('install handoff uses FileProvider and Android package installer UI', () => {
@@ -33,4 +38,10 @@ test('settings UI exposes separate check download and install actions', () => {
   assert.match(activity, /Scarica aggiornamento/);
   assert.match(activity, /Installa aggiornamento/);
   assert.doesNotMatch(activity, /showUpdateDialog\(/);
+});
+
+test('network update checks are single-flight and always release their gate', () => {
+  assert.match(updater, /AtomicBoolean\s+CHECKING/);
+  assert.match(updater, /CHECKING\.compareAndSet\(false, true\)/);
+  assert.match(updater, /finally\s*\{\s*CHECKING\.set\(false\);\s*\}/s);
 });

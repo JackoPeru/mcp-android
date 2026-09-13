@@ -30,9 +30,23 @@ try {
     if ($LASTEXITCODE -ne 0 -or $head -ne $originMain) {
         throw 'Il branch main locale deve essere sincronizzato esattamente con origin/main.'
     }
+    & git show-ref --verify --quiet "refs/tags/$tag"
+    if ($LASTEXITCODE -eq 0) {
+        throw "Il tag Git $tag esiste già. Le release sono immutabili."
+    }
+    if ($LASTEXITCODE -ne 1) { throw 'Impossibile verificare i tag Git esistenti.' }
 
     $previousTag = (& git describe --tags --abbrev=0 HEAD^).Trim()
     if ($LASTEXITCODE -ne 0 -or -not $previousTag) { throw 'Tag release precedente non trovato.' }
+    try {
+        $currentSemVer = [version]$version
+        $previousSemVer = [version]($previousTag -replace '^[vV]', '')
+    } catch {
+        throw 'Versione semantica release non valida.'
+    }
+    if ($currentSemVer -le $previousSemVer) {
+        throw "La versione semantica release deve aumentare rispetto a $previousTag."
+    }
     $currentGradle = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot 'android\app\build.gradle')
     $previousGradle = ((& git show "${previousTag}:android/app/build.gradle") -join "`n")
     if ($LASTEXITCODE -ne 0) { throw 'Impossibile leggere il versionCode della release precedente.' }
@@ -82,7 +96,7 @@ try {
     if ($LASTEXITCODE -eq 0) {
         throw "La release $tag esiste già ed è immutabile."
     }
-    gh release create $tag $apk $hash --repo JackoPeru/mcp-android --title "MCP Android $tag" --generate-notes
+    gh release create $tag $apk $hash --repo JackoPeru/mcp-android --title "MCP Android $tag" --generate-notes --target $head
     if ($LASTEXITCODE -ne 0) { throw 'Pubblicazione release fallita.' }
 } finally {
     Remove-Item Env:RELEASE_TAG -ErrorAction SilentlyContinue

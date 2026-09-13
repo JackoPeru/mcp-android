@@ -58,6 +58,7 @@ public final class TermuxBridge {
         if (script == null || script.isEmpty() || script.length() > SecurityValidators.MAX_SHELL_INPUT
                 || stdin == null || stdin.length() > SecurityValidators.MAX_SHELL_INPUT
                 || workdir == null || workdir.length() > 1024 || workdir.indexOf('\0') >= 0
+                || hasParentSegment(workdir)
                 || timeoutMs < 250 || timeoutMs > 12_000) {
             throw new ApiException("INVALID_ARGUMENT", "Invalid shell request");
         }
@@ -71,6 +72,13 @@ public final class TermuxBridge {
         WAITING.put(id, future);
         Intent callback = new Intent(context, TermuxResultService.class).putExtra("requestId", id);
         int flags = PendingIntent.FLAG_ONE_SHOT;
+        // FLAG_MUTABLE is required by Termux's RUN_COMMAND contract (the result
+        // Intent is filled in by Termux/RunCommandService). The Intent is
+        // explicit to exported=false TermuxResultService, one-shot, and keyed
+        // by a random requestId; WAITING entries are always removed in finally
+        // (including timeout) so a late/duplicate result cannot complete a
+        // future command. A forged result can at most falsify shell output
+        // that is already treated as untrusted data.
         if (Build.VERSION.SDK_INT >= 31) flags |= PendingIntent.FLAG_MUTABLE;
         PendingIntent pending = PendingIntent.getService(context, id, callback, flags);
 
@@ -107,6 +115,14 @@ public final class TermuxBridge {
         } finally {
             WAITING.remove(id);
         }
+    }
+
+    static boolean hasParentSegment(String value) {
+        if (value == null) return false;
+        for (String part : value.split("/")) {
+            if ("..".equals(part)) return true;
+        }
+        return false;
     }
 
     static void acceptResult(Intent intent) {

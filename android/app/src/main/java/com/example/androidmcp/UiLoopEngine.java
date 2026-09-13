@@ -29,7 +29,11 @@ public final class UiLoopEngine {
     }
 
     public ScreenSnapshotStore.Snapshot capture() throws ApiException {
-        return snapshots.capture(service.compactContext(false, DEFAULT_CONTEXT_NODES));
+        return capture(false, DEFAULT_CONTEXT_NODES);
+    }
+
+    public ScreenSnapshotStore.Snapshot capture(boolean includeInvisible, int maxNodes) throws ApiException {
+        return snapshots.capture(service.compactContext(includeInvisible, maxNodes), includeInvisible, maxNodes);
     }
 
     public JSONObject waitIdle(long timeoutMs, long quietMs) throws ApiException {
@@ -42,9 +46,7 @@ public final class UiLoopEngine {
         for (;;) {
             RequestScope.checkCurrent();
             current = capture();
-            long eventTime = EventJournal.lastEventTimeMs();
-            long eventAge = eventTime <= 0 ? Long.MAX_VALUE
-                    : Math.max(0, System.currentTimeMillis() - eventTime);
+            long eventAge = EventJournal.lastEventAgeMs();
             if (isIdle(eventAge, quietMs, previous, current.uiHash)) {
                 return waitResult("idle", started, current);
             }
@@ -57,13 +59,20 @@ public final class UiLoopEngine {
     public JSONObject waitChange(long snapshotId, String uiHash, long timeoutMs) throws ApiException {
         validateWait(timeoutMs);
         String baseHash = uiHash == null ? "" : uiHash.trim();
-        if (snapshotId > 0) baseHash = snapshots.get(snapshotId).uiHash;
+        ScreenSnapshotStore.Snapshot base = null;
+        if (snapshotId > 0) {
+            base = snapshots.get(snapshotId);
+            baseHash = base.uiHash;
+        } else if (!baseHash.isEmpty()) {
+            base = snapshots.findByHash(baseHash);
+        }
         if (baseHash.isEmpty()) throw new ApiException("INVALID_ARGUMENT", "snapshotId or uiHash is required");
         long started = System.nanoTime();
         long deadline = started + TimeUnit.MILLISECONDS.toNanos(timeoutMs);
         for (;;) {
             RequestScope.checkCurrent();
-            ScreenSnapshotStore.Snapshot current = capture();
+            ScreenSnapshotStore.Snapshot current = base == null
+                    ? capture() : capture(base.includeInvisible, base.maxNodes);
             if (!baseHash.equals(current.uiHash)) return waitResult("changed", started, current);
             if (System.nanoTime() >= deadline) throw new ApiException("WAIT_TIMEOUT", "UI did not change");
             sleep(deadline);

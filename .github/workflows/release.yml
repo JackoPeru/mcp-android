@@ -39,7 +39,18 @@ jobs:
             exit 1
           fi
           git fetch --tags --force origin
+          if git show-ref --verify --quiet "refs/tags/$RELEASE_TAG"; then
+            echo "::error::Git tag $RELEASE_TAG already exists and is immutable."
+            exit 1
+          fi
           previous_tag="$(git describe --tags --abbrev=0 HEAD^)"
+          current_version="${RELEASE_TAG#v}"
+          previous_version="${previous_tag#v}"
+          highest_version="$(printf '%s\n%s\n' "$previous_version" "$current_version" | sort -V | tail -n1)"
+          if [ "$highest_version" != "$current_version" ] || [ "$current_version" = "$previous_version" ]; then
+            echo "::error::Release semantic version must increase beyond $previous_tag."
+            exit 1
+          fi
           current_code="$(sed -nE 's/^[[:space:]]*versionCode[[:space:]]+([0-9]+)[[:space:]]*$/\1/p' android/app/build.gradle | head -n1)"
           previous_code="$(git show "${previous_tag}:android/app/build.gradle" | sed -nE 's/^[[:space:]]*versionCode[[:space:]]+([0-9]+)[[:space:]]*$/\1/p' | head -n1)"
           if [ -z "$current_code" ] || [ -z "$previous_code" ] || [ "$current_code" -le "$previous_code" ]; then
@@ -102,11 +113,19 @@ jobs:
           apk="mcp-android-${version}-debug.apk"
           cp android/app/build/outputs/apk/debug/app-debug.apk "$apk"
           sha256sum "$apk" > "$apk.sha256"
-          apksigner verify --verbose "$apk"
+          signer_output="$(apksigner verify --verbose --print-certs "$apk")"
+          printf '%s\n' "$signer_output"
+          actual_signer="$(printf '%s\n' "$signer_output" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n1 | tr -d ':' | tr '[:upper:]' '[:lower:]')"
+          signer_count="$(printf '%s\n' "$signer_output" | sed -n 's/^Number of signers: //p' | head -n1)"
+          expected_signer="7be7c380f31c81c050a86ea8cefd4ec3bd41972ddd864a8edb97b1e20c84823f"
+          if [ "$signer_count" != "1" ] || [ "$actual_signer" != "$expected_signer" ]; then
+            echo "::error::Final APK signer does not match the historical release certificate."
+            exit 1
+          fi
           echo "APK=$apk" >> "$GITHUB_ENV"
 
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$RELEASE_TAG" "$APK" "$APK.sha256" --title "MCP Android $RELEASE_TAG" --generate-notes
+          gh release create "$RELEASE_TAG" "$APK" "$APK.sha256" --title "MCP Android $RELEASE_TAG" --generate-notes --target "$GITHUB_SHA"

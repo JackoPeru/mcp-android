@@ -4,11 +4,13 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 /** Executes a strict, bounded, shell-free UI automation flow entirely on the phone. */
 public final class FlowRuntime {
     private static final int MAX_TRACE_RESULT_CHARS = 16_000;
+    private static final long MAX_ACCESSIBILITY_OPERATION_MS = 4_000;
 
     private final RpcDispatcher dispatcher;
     private final McpAccessibilityService service;
@@ -34,6 +36,7 @@ public final class FlowRuntime {
         JSONObject captures = new JSONObject();
         boolean ok = true;
         boolean timedOut = false;
+        boolean outcomeUnknown = false;
 
         for (int i = 0; i < steps.length(); i++) {
             RequestScope.checkCurrent();
@@ -45,8 +48,15 @@ public final class FlowRuntime {
             JSONObject step = steps.optJSONObject(i);
             long stepStarted = System.nanoTime();
             String type = step.optString("type", "");
+            boolean actionStarted = false;
             try {
+                if (step.has("ifPresent") || step.has("ifAbsent")) {
+                    ensureActionFits("find", new JSONObject(), remainingMs(deadline));
+                }
                 if (!guardAllows(step)) {
+                    if (System.nanoTime() >= deadline) {
+                        throw new ApiException("TIMEOUT", "Flow deadline reached while evaluating guard");
+                    }
                     JSONObject trace = stepTrace(i, type, elapsedMs(stepStarted), true, "");
                     trace.put("status", "skipped");
                     traces.put(trace);
@@ -55,9 +65,21 @@ public final class FlowRuntime {
                 }
 
                 JSONObject params = boundedParams(type, JsonArgs.optionalObject(step, "params"), deadline);
+                ensureActionFits(type, params, remainingMs(deadline));
+                actionStarted = true;
                 Object result = executeStep(type, params);
+                if (stepResultTimedOut(type, result)) {
+                    throw new ApiException("TIMEOUT", "Flow step timed out");
+                }
+                if (System.nanoTime() >= deadline) {
+                    throw new ApiException("TIMEOUT", "Flow deadline reached after step");
+                }
                 if (JsonArgs.optionalBoolean(step, "observeAfter", false) && !"observe".equals(type)) {
+                    ensureActionFits("observe", new JSONObject(), remainingMs(deadline));
                     lastSnapshot = loop.capture();
+                    if (System.nanoTime() >= deadline) {
+                        throw new ApiException("TIMEOUT", "Flow deadline reached while observing");
+                    }
                 } else {
                     updateLastSnapshot(result);
                 }
@@ -76,12 +98,17 @@ public final class FlowRuntime {
             } catch (ApiException e) {
                 ok = false;
                 long duration = elapsedMs(stepStarted);
-                traces.put(stepTrace(i, type, duration, false, e.code));
+                boolean timeout = "TIMEOUT".equals(e.code) || "WAIT_TIMEOUT".equals(e.code);
+                boolean uncertain = timeoutIsUnknown(type, timeout, actionStarted);
+                JSONObject trace = stepTrace(i, type, duration, false, e.code);
+                try { if (uncertain) trace.put("outcomeUnknown", true); }
+                catch (JSONException jsonError) { throw new ApiException("INTERNAL", "Unable to encode flow trace"); }
+                traces.put(trace);
                 TraceJournal.add("flow_step", type, duration, "error", e.code);
-                if ("TIMEOUT".equals(e.code) || "WAIT_TIMEOUT".equals(e.code)) {
-                    timedOut = System.nanoTime() >= deadline;
-                }
-                if (!"continue".equals(step.optString("onError", "stop"))) break;
+                timedOut |= timeout;
+                outcomeUnknown |= uncertain;
+                if (timeoutStops(type, timeout)
+                        || !"continue".equals(step.optString("onError", "stop"))) break;
             } catch (JSONException e) {
                 throw new ApiException("INTERNAL", "Unable to encode flow trace");
             }
@@ -91,6 +118,7 @@ public final class FlowRuntime {
             JSONObject result = new JSONObject()
                     .put("ok", ok)
                     .put("timedOut", timedOut)
+                    .put("outcomeUnknown", outcomeUnknown)
                     .put("elapsedMs", elapsedMs(started))
                     .put("steps", traces)
                     .put("captures", captures)
@@ -169,8 +197,9 @@ public final class FlowRuntime {
             case "observe": {
                 JsonArgs.only(params, "includeInvisible", "maxNodes");
                 boolean includeInvisible = JsonArgs.optionalBoolean(params, "includeInvisible", false);
-                int maxNodes = (int) JsonArgs.optionalLong(params, "maxNodes", 250);
-                lastSnapshot = snapshots.capture(service.compactContext(includeInvisible, maxNodes));
+                int maxNodes = JsonArgs.optionalInt(params, "maxNodes", 250, 1, 500);
+                lastSnapshot = snapshots.capture(
+                        service.compactContext(includeInvisible, maxNodes), includeInvisible, maxNodes);
                 return lastSnapshot.responseCopy();
             }
             default:
@@ -196,10 +225,60 @@ public final class FlowRuntime {
         }
         if (defaultTimeout >= 0) {
             long requested = JsonArgs.optionalLong(copy, "timeoutMs", defaultTimeout);
-            try { copy.put("timeoutMs", Math.max(0, Math.min(requested, remaining))); }
+            try { copy.put("timeoutMs", boundWaitTimeout(requested, remaining)); }
             catch (JSONException e) { throw new ApiException("INTERNAL", "Unable to bound flow timeout"); }
         }
         return copy;
+    }
+
+    static void ensureActionFits(String type, JSONObject params, long remainingMs) throws ApiException {
+        long duration;
+        switch (type) {
+            case "long_press": duration = Math.max(MAX_ACCESSIBILITY_OPERATION_MS, JsonArgs.optionalLong(params, "durationMs", 800)); break;
+            case "swipe": duration = Math.max(MAX_ACCESSIBILITY_OPERATION_MS, JsonArgs.optionalLong(params, "durationMs", 400)); break;
+            case "drag": duration = Math.max(MAX_ACCESSIBILITY_OPERATION_MS, JsonArgs.optionalLong(params, "durationMs", 600)); break;
+            case "pinch": duration = Math.max(MAX_ACCESSIBILITY_OPERATION_MS, JsonArgs.optionalLong(params, "durationMs", 500)); break;
+            case "find":
+            case "click":
+            case "set_text":
+            case "tap":
+            case "double_tap":
+            case "scroll":
+            case "press_key":
+            case "launch_app":
+            case "global_action":
+            case "assert_selector":
+            case "assert_package":
+            case "observe":
+            case "wait_idle":
+            case "wait_change":
+            case "wait_selector":
+            case "scroll_to":
+                duration = MAX_ACCESSIBILITY_OPERATION_MS; break;
+            default: return;
+        }
+        if (duration > remainingMs) throw new ApiException("TIMEOUT", "Action exceeds flow deadline");
+    }
+
+    static long boundWaitTimeout(long requestedMs, long remainingMs) {
+        return Math.max(0, Math.min(requestedMs,
+                Math.max(0, remainingMs - MAX_ACCESSIBILITY_OPERATION_MS)));
+    }
+
+    static boolean timeoutStops(String type, boolean timeout) {
+        return timeout;
+    }
+
+    static boolean timeoutIsUnknown(String type, boolean timeout, boolean actionStarted) {
+        return timeout && actionStarted
+                && Set.of("click", "set_text", "tap", "double_tap", "long_press", "swipe",
+                "drag", "pinch", "scroll", "scroll_to", "press_key", "launch_app", "global_action")
+                .contains(type);
+    }
+
+    static boolean stepResultTimedOut(String type, Object result) {
+        return "scroll_to".equals(type) && result instanceof JSONObject
+                && "timeout".equals(((JSONObject) result).optString("reason", ""));
     }
 
     private void updateLastSnapshot(Object result) throws ApiException {
@@ -258,5 +337,9 @@ public final class FlowRuntime {
 
     private static long elapsedMs(long started) {
         return TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
+    }
+
+    private static long remainingMs(long deadline) {
+        return Math.max(0, TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime()));
     }
 }

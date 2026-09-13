@@ -23,6 +23,16 @@ public final class CapabilityRouter {
             Pattern.compile("(?i)\\bsk-[A-Za-z0-9_-]{20,}\\b");
     private static final Pattern BEARER =
             Pattern.compile("(?i)(Authorization\\s*:\\s*Bearer\\s+)[A-Za-z0-9._~-]{16,}");
+    // GitHub / Slack / Google / generic private keys seen in real logcat.
+    // Redaction is best-effort: logs remain untrusted data, never auth.
+    private static final Pattern GITHUB_TOKEN =
+            Pattern.compile("\\b(ghp_[A-Za-z0-9]{20,}|gho_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\\b");
+    private static final Pattern SLACK_TOKEN =
+            Pattern.compile("\\b(xox[baprs]-[A-Za-z0-9-]{10,})\\b");
+    private static final Pattern GOOGLE_API_KEY =
+            Pattern.compile("\\bAIza[A-Za-z0-9_-]{30,}\\b");
+    private static final Pattern PRIVATE_KEY_BLOCK =
+            Pattern.compile("-----BEGIN [A-Z ]*PRIVATE KEY-----[\\s\\S]*?-----END [A-Z ]*PRIVATE KEY-----");
     private static final Set<String> LOG_LEVELS = Set.of("V", "D", "I", "W", "E", "F");
 
     private CapabilityRouter() { }
@@ -34,7 +44,11 @@ public final class CapabilityRouter {
     static String redactLogText(String value) {
         if (value == null || value.isEmpty()) return "";
         String redacted = BEARER.matcher(value).replaceAll("$1[REDACTED]");
-        return OPENAI_STYLE.matcher(redacted).replaceAll("[REDACTED]");
+        redacted = OPENAI_STYLE.matcher(redacted).replaceAll("[REDACTED]");
+        redacted = GITHUB_TOKEN.matcher(redacted).replaceAll("[REDACTED]");
+        redacted = SLACK_TOKEN.matcher(redacted).replaceAll("[REDACTED]");
+        redacted = GOOGLE_API_KEY.matcher(redacted).replaceAll("[REDACTED]");
+        return PRIVATE_KEY_BLOCK.matcher(redacted).replaceAll("[REDACTED PRIVATE KEY]");
     }
 
     public static JSONObject status(Context context, FileRootStore roots) throws ApiException {

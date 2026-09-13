@@ -188,10 +188,10 @@ public final class RpcDispatcher {
         if (!treeMode.equals("compact")) throw new ApiException("INVALID_ARGUMENT", "Unsupported tree mode");
         boolean includeInvisible = JsonArgs.optionalBoolean(params, "includeInvisible", false);
         boolean includeScreenshot = JsonArgs.optionalBoolean(params, "screenshot", false);
-        int maxNodes = (int) JsonArgs.optionalLong(params, "maxNodes", 250);
+        int maxNodes = JsonArgs.optionalInt(params, "maxNodes", 250, 1, 500);
         McpAccessibilityService service = requireAccessibility();
         JSONObject semantic = service.compactContext(includeInvisible, maxNodes);
-        ScreenSnapshotStore.Snapshot snapshot = snapshots.capture(semantic);
+        ScreenSnapshotStore.Snapshot snapshot = snapshots.capture(semantic, includeInvisible, maxNodes);
         JSONObject response = snapshot.responseCopy();
         if (includeScreenshot) attachScreenshot(response, service);
         return response;
@@ -240,7 +240,7 @@ public final class RpcDispatcher {
                 "visible", "caseSensitive", "direction", "maxSteps", "timeoutMs");
         requireUnlocked();
         String direction = JsonArgs.optionalString(params, "direction", "down", 16);
-        int maxSteps = (int) JsonArgs.optionalLong(params, "maxSteps", 8);
+        int maxSteps = JsonArgs.optionalInt(params, "maxSteps", 8, 1, 12);
         long timeout = JsonArgs.optionalLong(params, "timeoutMs", 8_000);
         return new UiLoopEngine(requireAccessibility(), snapshots)
                 .scrollTo(selectorFrom(params), direction, maxSteps, timeout);
@@ -451,7 +451,7 @@ public final class RpcDispatcher {
                 "viewId", "className", "packageName", "clickable", "editable", "enabled",
                 "visible", "caseSensitive", "limit");
         requireUnlocked();
-        int limit = (int) JsonArgs.optionalLong(params, "limit", 20);
+        int limit = JsonArgs.optionalInt(params, "limit", 20, 1, 100);
         return requireAccessibility().find(selectorFrom(params), limit);
     }
 
@@ -460,7 +460,7 @@ public final class RpcDispatcher {
                 "viewId", "className", "packageName", "clickable", "editable", "enabled",
                 "visible", "caseSensitive", "index");
         requireUnlocked();
-        int index = (int) JsonArgs.optionalLong(params, "index", 0);
+        int index = JsonArgs.optionalInt(params, "index", 0, 0, 99);
         return requireAccessibility().clickSelector(selectorFrom(params), index);
     }
 
@@ -469,7 +469,7 @@ public final class RpcDispatcher {
                 "viewId", "className", "packageName", "clickable", "editable", "enabled",
                 "visible", "caseSensitive", "index", "value");
         requireUnlocked();
-        int index = (int) JsonArgs.optionalLong(params, "index", 0);
+        int index = JsonArgs.optionalInt(params, "index", 0, 0, 99);
         String value = JsonArgs.requiredStringAllowEmpty(params, "value", SecurityValidators.MAX_TEXT_LENGTH);
         return requireAccessibility().setTextSelector(selectorFrom(params), index, value);
     }
@@ -629,6 +629,7 @@ public final class RpcDispatcher {
             default: throw new ApiException("INVALID_ARGUMENT", "Unsupported key");
         }
         JSONObject result = ShizukuBridge.execute(context, "input keyevent " + keyCode, "", "", 2_000);
+        requireKnownShizukuOutcome(result);
         if (!result.isNull("exitCode") && result.optInt("exitCode", -1) != 0) {
             throw new ApiException("ACTION_REJECTED", "Key event failed");
         }
@@ -674,7 +675,7 @@ public final class RpcDispatcher {
     private JSONObject apps(JSONObject params) throws ApiException {
         JsonArgs.only(params, "query", "limit");
         String query = JsonArgs.optionalStringAllowEmpty(params, "query", "", 100);
-        int limit = (int) JsonArgs.optionalLong(params, "limit", 100);
+        int limit = JsonArgs.optionalInt(params, "limit", 100, 1, 500);
         return AndroidSystemTools.apps(context, query, limit);
     }
 
@@ -726,7 +727,7 @@ public final class RpcDispatcher {
 
     private JSONObject notifications(JSONObject params) throws ApiException {
         JsonArgs.only(params, "limit");
-        int limit = (int) JsonArgs.optionalLong(params, "limit", 50);
+        int limit = JsonArgs.optionalInt(params, "limit", 50, 1, 200);
         return requireNotificationService().list(limit);
     }
 
@@ -769,21 +770,21 @@ public final class RpcDispatcher {
     private JSONObject volumeSet(JSONObject params) throws ApiException {
         JsonArgs.only(params, "stream", "level");
         String stream = JsonArgs.requiredString(params, "stream", 20);
-        int level = (int) JsonArgs.requiredLong(params, "level");
+        int level = JsonArgs.requiredInt(params, "level", 0, 1_000);
         return AndroidSystemTools.setVolume(context, stream, level);
     }
 
     private JSONObject events(JSONObject params) throws ApiException {
         JsonArgs.only(params, "afterId", "limit");
         long after = JsonArgs.optionalLong(params, "afterId", 0);
-        int limit = (int) JsonArgs.optionalLong(params, "limit", 100);
+        int limit = JsonArgs.optionalInt(params, "limit", 100, 1, 200);
         return EventJournal.since(after, limit);
     }
 
     private JSONObject eventsWait(JSONObject params) throws ApiException {
         JsonArgs.only(params, "afterId", "limit", "timeoutMs");
         long after = JsonArgs.optionalLong(params, "afterId", 0);
-        int limit = (int) JsonArgs.optionalLong(params, "limit", 100);
+        int limit = JsonArgs.optionalInt(params, "limit", 100, 1, 200);
         long timeout = JsonArgs.optionalLong(params, "timeoutMs", 8_000);
         return EventJournal.waitSince(after, limit, timeout);
     }
@@ -839,15 +840,15 @@ public final class RpcDispatcher {
                 params, "packageName", "", SecurityValidators.MAX_PACKAGE_LENGTH);
         String tag = JsonArgs.optionalStringAllowEmpty(params, "tag", "", 80);
         String level = JsonArgs.optionalString(params, "level", "I", 1);
-        int lines = (int) JsonArgs.optionalLong(params, "lines", 200);
-        int sinceSeconds = (int) JsonArgs.optionalLong(params, "sinceSeconds", 300);
+        int lines = JsonArgs.optionalInt(params, "lines", 200, 1, 500);
+        int sinceSeconds = JsonArgs.optionalInt(params, "sinceSeconds", 300, 0, 3_600);
         return CapabilityRouter.logcat(context, packageName, tag, level, lines, sinceSeconds);
     }
 
     private JSONObject diagnostics(JSONObject params) throws ApiException {
         JsonArgs.only(params, "eventLimit", "traceLimit");
-        int eventLimit = (int) JsonArgs.optionalLong(params, "eventLimit", 20);
-        int traceLimit = (int) JsonArgs.optionalLong(params, "traceLimit", 40);
+        int eventLimit = JsonArgs.optionalInt(params, "eventLimit", 20, 1, 100);
+        int traceLimit = JsonArgs.optionalInt(params, "traceLimit", 40, 1, 128);
         if (eventLimit < 1 || eventLimit > 100 || traceLimit < 1 || traceLimit > 128) {
             throw new ApiException("INVALID_ARGUMENT", "Invalid diagnostics limits");
         }
@@ -955,8 +956,8 @@ public final class RpcDispatcher {
         String rootId = JsonArgs.requiredString(params, "rootId", 80);
         String path = JsonArgs.optionalStringAllowEmpty(params, "path", "", SecurityValidators.MAX_PATH_LENGTH);
         String query = JsonArgs.optionalStringAllowEmpty(params, "query", "", 255);
-        int maxDepth = (int) JsonArgs.optionalLong(params, "maxDepth", 8);
-        int limit = (int) JsonArgs.optionalLong(params, "limit", 100);
+        int maxDepth = JsonArgs.optionalInt(params, "maxDepth", 8, 0, 16);
+        int limit = JsonArgs.optionalInt(params, "limit", 100, 1, SecurityValidators.MAX_SEARCH_RESULTS);
         return files.search(rootId, path, query, maxDepth, limit);
     }
 
@@ -964,7 +965,8 @@ public final class RpcDispatcher {
         JsonArgs.only(params, "rootId", "path", "data", "offset", "truncate", "mimeType");
         String rootId = JsonArgs.requiredString(params, "rootId", 80);
         String path = JsonArgs.requiredString(params, "path", SecurityValidators.MAX_PATH_LENGTH);
-        String data = JsonArgs.requiredStringAllowEmpty(params, "data", 400_000);
+        String data = JsonArgs.requiredStringAllowEmpty(
+                params, "data", SecurityValidators.MAX_FILE_WRITE_BASE64_CHARS);
         long offset = JsonArgs.optionalLong(params, "offset", 0);
         boolean truncate = JsonArgs.optionalBoolean(params, "truncate", offset == 0);
         String mime = JsonArgs.optionalString(params, "mimeType", "application/octet-stream", 200);
@@ -1066,8 +1068,8 @@ public final class RpcDispatcher {
         String nyKey = "ny" + normalizedSuffix;
         Long x = params.has(xKey) ? JsonArgs.requiredLong(params, xKey) : null;
         Long y = params.has(yKey) ? JsonArgs.requiredLong(params, yKey) : null;
-        Integer nx = params.has(nxKey) ? Math.toIntExact(JsonArgs.requiredLong(params, nxKey)) : null;
-        Integer ny = params.has(nyKey) ? Math.toIntExact(JsonArgs.requiredLong(params, nyKey)) : null;
+        Integer nx = params.has(nxKey) ? JsonArgs.requiredInt(params, nxKey, 0, 1_000) : null;
+        Integer ny = params.has(nyKey) ? JsonArgs.requiredInt(params, nyKey, 0, 1_000) : null;
         Point size = service.screenSize();
         try {
             return CoordinateResolver.resolve(size.x, size.y, x, y, nx, ny);
@@ -1111,6 +1113,13 @@ public final class RpcDispatcher {
             return result;
         } catch (JSONException e) {
             throw new ApiException("INTERNAL", "Unable to encode action result");
+        }
+    }
+
+    static void requireKnownShizukuOutcome(JSONObject result) throws ApiException {
+        if (result != null && (result.optBoolean("timedOut", false)
+                || result.optBoolean("outcomeUnknown", false))) {
+            throw new ApiException("TIMEOUT", "Shizuku action outcome unknown");
         }
     }
 

@@ -13,6 +13,13 @@ test('transport validators keep LAN and Tailscale address spaces separate', () =
   for (const value of ['http://192.168.1.10:8765', 'http://100.128.0.1:8765', 'https://example.com', 'https://100.100.1.2:8765']) {
     assert.throws(() => validateTailscaleOrigin(value));
   }
+  // The phone only listens on 8765: wrong ports never validate.
+  for (const value of ['http://192.168.1.10:22', 'http://192.168.1.10:80', 'http://192.168.1.10/', 'http://192.168.1.10:8766']) {
+    assert.throws(() => validateLanOrigin(value), value);
+  }
+  for (const value of ['http://100.100.1.2:22', 'http://100.100.1.2:80', 'http://100.100.1.2/', 'http://100.100.1.2:8766']) {
+    assert.throws(() => validateTailscaleOrigin(value), value);
+  }
 });
 
 test('authenticated application errors do not evict a healthy LAN endpoint', async () => {
@@ -52,6 +59,22 @@ test('auto discovers LAN then falls back to Tailscale only when LAN is unreachab
     probe: async url => { if (url.includes('192.168.1.99')) throw Object.assign(new Error('unreachable'), { kind: 'unreachable' }); return true; },
   });
   assert.deepEqual(await resolver.resolve(), { url: 'http://100.100.1.2:8765/', transport: 'tailscale' });
+});
+
+test('auto falls back to Tailscale when local UDP discovery is unavailable', async () => {
+  const resolver = new TransportResolver({
+    preference: 'auto', lanUrl: null, tailscaleUrl: 'http://100.100.1.2:8765/', discovery: true,
+  }, {
+    discover: async () => { throw new Error('bind EACCES'); },
+    probe: async () => true,
+  });
+  assert.deepEqual(await resolver.resolve(), { url: 'http://100.100.1.2:8765/', transport: 'tailscale' });
+
+  const lanOnly = new TransportResolver({ preference: 'lan', lanUrl: null, discovery: true }, {
+    discover: async () => { throw new Error('bind EACCES'); },
+    probe: async () => true,
+  });
+  await assert.rejects(lanOnly.resolve(), /LAN endpoint unavailable/);
 });
 
 test('configured LAN authentication failure is not treated as transport failure', async () => {
@@ -145,9 +168,10 @@ test('LAN transport failure invalidates recent cache so the next RPC falls back 
       dispatched.push(url.hostname);
       if (url.hostname === '192.168.1.84' && !lanAlive) throw new TypeError('fetch failed');
       if (url.hostname === '192.168.1.84') {
-        const request = decryptRequest('a'.repeat(64), session, JSON.parse(options.body));
+        const requestEnvelope = JSON.parse(options.body);
+        const request = decryptRequest('a'.repeat(64), session, requestEnvelope);
         return new Response(JSON.stringify(encryptResponse('a'.repeat(64), session,
-          { result: { transport: url.hostname, request } })), {
+          { result: { transport: url.hostname, request }, requestNonce: requestEnvelope.nonce })), {
           status: 200,
           headers: { 'content-type': 'application/mcp-android-lan+json' },
         });
@@ -242,4 +266,40 @@ test('AndroidClient uses a short dedicated timeout for LAN reachability probes',
   assert.equal(calls[0][3], true);
   assert.equal(calls[0][4], 750);
   assert.equal(calls[1][3], false);
+});
+
+test('configured LAN probe outcome-unknown falls back instead of failing hard', async () => {
+  const resolver = new TransportResolver({
+    preference: 'auto', lanUrl: 'http://192.168.1.84:8765/', tailscaleUrl: 'http://100.100.1.2:8765/', discovery: false,
+  }, {
+    discover: async () => [],
+    probe: async () => { throw Object.assign(new Error('busy'), { kind: 'outcome_unknown' }); },
+  });
+  assert.deepEqual(await resolver.resolve(), { url: 'http://100.100.1.2:8765/', transport: 'tailscale' });
+});
+
+test('LAN sessions rotate after max age instead of living forever', async () => {
+  let now = 1_000_000;
+  let hellos = 0;
+  const sessionA = 'a'.repeat(32);
+  const sessionB = 'b'.repeat(32);
+  const client = new AndroidClient({
+    token: 'a'.repeat(64),
+    resolver: { resolve: async () => ({ url: 'http://192.168.1.84:8765/', transport: 'lan' }) },
+    now: () => now,
+  });
+  client.establishLanSession = async url => {
+    hellos++;
+    const session = hellos === 1 ? sessionA : sessionB;
+    client.lanSessions.set(url, session);
+    client.lanSessionEstablishedAt.set(url, now);
+    return session;
+  };
+  const url = 'http://192.168.1.84:8765/';
+  assert.equal(await client.ensureLanSession(url, 500), sessionA);
+  assert.equal(await client.ensureLanSession(url, 500), sessionA);
+  assert.equal(hellos, 1);
+  now += 10 * 60 * 1000 + 1;
+  assert.equal(await client.ensureLanSession(url, 500), sessionB);
+  assert.equal(hellos, 2);
 });

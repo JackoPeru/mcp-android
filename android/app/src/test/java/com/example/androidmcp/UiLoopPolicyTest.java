@@ -22,4 +22,11 @@ public final class UiLoopPolicyTest {
         assertTrue(UiLoopEngine.shouldStopScroll(seen, "b", 8, 8));
         assertFalse(UiLoopEngine.shouldStopScroll(seen, "b", 2, 8));
     }
+
+    @Test public void selectorsRequireVisibleNodesUnlessExplicitlyOverridden() {
+        assertTrue(McpAccessibilityService.selectorVisibilityMatches(null, true));
+        assertFalse(McpAccessibilityService.selectorVisibilityMatches(null, false));
+        assertTrue(McpAccessibilityService.selectorVisibilityMatches(false, false));
+        assertFalse(McpAccessibilityService.selectorVisibilityMatches(false, true));
+    }
 }

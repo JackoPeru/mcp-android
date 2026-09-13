@@ -16,12 +16,14 @@ export function isTailscale(ip) {
   return ((ipv4(ip) & 0xffc00000) >>> 0) === 0x64400000;
 }
 
+const RPC_PORT = '8765';
+
 function validateOrigin(value, predicate, label) {
   const endpoint = new URL(value ?? '');
   if (endpoint.protocol !== 'http:' || isIP(endpoint.hostname) !== 4 ||
       endpoint.username || endpoint.password || endpoint.pathname !== '/' || endpoint.search || endpoint.hash ||
-      !predicate(endpoint.hostname)) {
-    throw new Error(`${label} must be a numeric private IPv4 HTTP origin without credentials, path, query, or fragment.`);
+      endpoint.port !== RPC_PORT || !predicate(endpoint.hostname)) {
+    throw new Error(`${label} must be a numeric private IPv4 HTTP origin on port 8765 without credentials, path, query, or fragment.`);
   }
   return endpoint.href;
 }
@@ -89,7 +91,14 @@ export class TransportResolver {
         this.lanRetryAfter = 0;
         return this.cachedLanUrl;
       } catch (error) {
-        if (this.cachedLanSource === 'configured' && error?.kind !== 'unreachable') throw error;
+        // Probes are read-only `status` calls: `unreachable` (transport down)
+        // and `outcome_unknown` (phone reachable but busy/ambiguous) both mean
+        // LAN cannot be validated right now, so fall back to Tailscale instead
+        // of failing. `auth` and programmer errors still throw: a wrong token
+        // must surface instead of silently roaming. Mutating RPCs never reach
+        // this path — they propagate `outcome_unknown` without auto-retry.
+        if (this.cachedLanSource === 'configured' &&
+            error?.kind !== 'unreachable' && error?.kind !== 'outcome_unknown') throw error;
         this.cachedLanUrl = null;
         this.cachedLanSource = null;
         this.validatedLanAt = 0;
@@ -100,7 +109,9 @@ export class TransportResolver {
       this.lanRetryAfter = this.now() + this.lanRetryMs;
       return null;
     }
-    const candidates = await this.discover();
+    let candidates;
+    try { candidates = await this.discover(); }
+    catch { candidates = []; }
     for (const candidate of candidates) {
       let url;
       try { url = validateLanOrigin(candidate); }

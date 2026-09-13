@@ -1,4 +1,13 @@
-# Acceptance v0.8.3
+# Acceptance v0.8.4
+
+## Delta v0.8.4 (verificato su OnePlus 7, Android 12, il 13/09/2026)
+
+- Tasto **Copia negli appunti** nella schermata token (`MainActivity.showToken`): niente più trascrizione a mano.
+- Guida Termux azionabile: pre-check installazione, dialogo con passi F-Droid/apertura/riprova invece del solo toast.
+- Binding `requestNonce` risposta↔richiesta attivo su entrambi i lati (bridge + app): verificato live che il server vecchio senza binding viene rifiutato fail-closed.
+- Hardening audit: allowlist `open_uri`, `outcome_unknown` uniforme sul bearer, validazione `workdir`, pin porta 8765, TTL sessioni LAN 10 min, redazione logcat estesa, `SEEK_UNSUPPORTED` in scrittura, supporto Ethernet, backoff accept 1s→5s.
+- Verifiche live: discovery HMAC, handshake `/hello`, RPC AES (`status`, `diagnostics`, `screen_context`, `screen_diff`, backend status), teardown STOP senza socket residue, manifest live senza permessi pericolosi.
+- Limiti noti invariati: SAF non concede intero volume/Download/`Android/data`; Termux richiede consenso; Shizuku assente sul device di test; Doze può differire il watchdog.
 
 ## Scope verificato
 

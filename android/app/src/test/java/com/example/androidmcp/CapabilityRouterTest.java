@@ -21,6 +21,18 @@ public final class CapabilityRouterTest {
         assertFalse(redacted.contains("sk-proj-"));
     }
 
+    @Test public void logRedactionRemovesGithubSlackGoogleAndPrivateKeys() {
+        String input = "token ghp_abcdefghijklmnopqrstuvwxyz1234\n"
+                + "slack xoxb-123456789012-ABCDEFGHIJ\n"
+                + "gmaps AIzaSyABCDEFGHIJKLMNOPQRSTUVWXYZ123456\n"
+                + "-----BEGIN PRIVATE KEY-----\nMIIBvTBX\n-----END PRIVATE KEY-----";
+        String redacted = CapabilityRouter.redactLogText(input);
+        assertFalse(redacted.contains("ghp_"));
+        assertFalse(redacted.contains("xoxb-"));
+        assertFalse(redacted.contains("AIza"));
+        assertFalse(redacted.contains("MIIBvTBX"));
+    }
+
     @Test public void capabilityMetadataKeepsPrivilegedActionsSeparate() throws Exception {
         java.lang.reflect.Method method = CapabilityRouter.class
                 .getDeclaredMethod("operationClasses");

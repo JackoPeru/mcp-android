@@ -15,7 +15,8 @@ public final class SecurityValidators {
     public static final int MAX_URI_LENGTH = 2_048;
     public static final int MAX_SHELL_INPUT = 32 * 1024;
     public static final int MAX_SEARCH_RESULTS = 500;
-    public static final int MAX_FILE_WRITE_BYTES = 262_144;
+    public static final int MAX_FILE_WRITE_BYTES = 32 * 1024;
+    public static final int MAX_FILE_WRITE_BASE64_CHARS = ((MAX_FILE_WRITE_BYTES + 2) / 3) * 4;
 
     private static final Pattern TOKEN = Pattern.compile("[0-9a-f]{64}");
     private static final Pattern ROOT_ID = Pattern.compile("[A-Za-z0-9_-]{1,80}");

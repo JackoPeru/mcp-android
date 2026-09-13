@@ -4,6 +4,7 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
+import org.json.JSONObject;
 
 public final class HttpBoundaryTest {
     @Test public void serverFailuresAreNotReportedAsBadArguments() {
@@ -42,5 +43,11 @@ public final class HttpBoundaryTest {
         assertFalse(McpHttpServer.secureLanEndpoint(tailscale));
         assertTrue(McpHttpServer.maxWireRequestBytes(lan) > SecurityValidators.MAX_JSON_BYTES);
         assertEquals(SecurityValidators.MAX_JSON_BYTES, McpHttpServer.maxWireRequestBytes(tailscale));
+    }
+    @Test public void oversizedLanResponseStillBindsErrorToRequest() throws Exception {
+        JSONObject body = new JSONObject().put("result", "x".repeat(200));
+        JSONObject bounded = McpHttpServer.boundLanResponse(body, "request-nonce", 100);
+        assertEquals("request-nonce", bounded.getString("requestNonce"));
+        assertEquals("RESPONSE_TOO_LARGE", bounded.getJSONObject("error").getString("code"));
     }
 }

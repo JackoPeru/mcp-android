@@ -26,6 +26,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 /** Accessibility bridge. It exposes only the active user UI and never logs node data. */
@@ -37,12 +38,22 @@ public final class McpAccessibilityService extends AccessibilityService {
 
     private final Handler main = new Handler(Looper.getMainLooper());
     private final java.util.concurrent.atomic.AtomicBoolean nativeBusy = new java.util.concurrent.atomic.AtomicBoolean();
+    private final AtomicLong nativeGeneration = new AtomicLong();
 
     public boolean operationInFlight() { return nativeBusy.get(); }
 
-    private void beginNative(RequestScope scope) throws ApiException {
+    static boolean selectorVisibilityMatches(Boolean requested, boolean actual) {
+        return requested == null ? actual : requested == actual;
+    }
+
+    private long beginNative(RequestScope scope) throws ApiException {
         if (scope != null) scope.beginAction(nativeBusy);
         else if (!nativeBusy.compareAndSet(false, true)) throw new ApiException("BUSY", "Native operation in flight");
+        return nativeGeneration.incrementAndGet();
+    }
+
+    private void releaseNative(long generation) {
+        if (nativeGeneration.get() == generation) nativeBusy.set(false);
     }
 
     public static McpAccessibilityService active() {
@@ -460,17 +471,31 @@ public final class McpAccessibilityService extends AccessibilityService {
         RequestScope scope = RequestScope.CURRENT.get();
         Runnable start = () -> {
             if (future.isDone()) return;
-            boolean started = false;
+            long generation = 0;
             try {
                 checkUi(scope);
-                beginNative(scope);
-                started = true;
+                generation = beginNative(scope);
+                final long operationGeneration = generation;
+                // Android normally invokes a gesture callback, but keep the busy gate
+                // self-healing if a vendor implementation loses that callback. The
+                // generation check prevents this delayed release from unlocking a newer
+                // operation that started after this gesture completed.
+                main.postDelayed(() -> releaseNative(operationGeneration), OP_TIMEOUT_MS);
                 if (!dispatchGesture(description, new GestureResultCallback() {
-                    @Override public void onCompleted(GestureDescription gesture) { nativeBusy.set(false); future.complete(true); }
-                    @Override public void onCancelled(GestureDescription gesture) { nativeBusy.set(false); future.complete(false); }
-                }, main)) { nativeBusy.set(false); future.complete(false); }
+                    @Override public void onCompleted(GestureDescription gesture) {
+                        releaseNative(operationGeneration);
+                        future.complete(true);
+                    }
+                    @Override public void onCancelled(GestureDescription gesture) {
+                        releaseNative(operationGeneration);
+                        future.complete(false);
+                    }
+                }, main)) {
+                    releaseNative(operationGeneration);
+                    future.complete(false);
+                }
             } catch (Exception e) {
-                if (started) nativeBusy.set(false);
+                if (generation != 0) releaseNative(generation);
                 future.completeExceptionally(e);
             }
         };
@@ -754,18 +779,17 @@ public final class McpAccessibilityService extends AccessibilityService {
         RequestScope scope = RequestScope.CURRENT.get();
         AtomicReference<ApiException> apiError = new AtomicReference<>();
         java.util.concurrent.FutureTask<T> task = new java.util.concurrent.FutureTask<>(() -> {
-            boolean started = false;
+            long generation = 0;
             try {
                 RequestScope.CURRENT.set(scope);
                 checkUi(scope);
-                beginNative(scope);
-                started = true;
+                generation = beginNative(scope);
                 return callable.call();
             } catch (ApiException e) {
                 apiError.set(e);
                 throw e;
             } finally {
-                if (started) nativeBusy.set(false);
+                if (generation != 0) releaseNative(generation);
                 RequestScope.CURRENT.remove();
             }
         });
@@ -894,7 +918,7 @@ public final class McpAccessibilityService extends AccessibilityService {
             if (clickable != null && clickable != node.isClickable()) return false;
             if (editable != null && editable != node.isEditable()) return false;
             if (enabled != null && enabled != node.isEnabled()) return false;
-            if (visible != null && visible != node.isVisibleToUser()) return false;
+            if (!selectorVisibilityMatches(visible, node.isVisibleToUser())) return false;
             return true;
         }
 

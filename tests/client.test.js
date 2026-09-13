@@ -43,6 +43,7 @@ test('real HTTP boundary: auth, result, error, redirect, bounded body and timeou
     if (request.method === 'redirect') { res.writeHead(302, { location: '/leak' }); res.end(); return; }
     if (request.method === 'large') { res.end('x'.repeat(2000)); return; }
     if (request.method === 'slow') { return; }
+    if (request.method === 'remote_timeout') { res.writeHead(504); res.end(JSON.stringify({ error: { code: 'TIMEOUT', message: 'expired' } })); return; }
     if (request.method === 'bad') { res.end(JSON.stringify({ error: { code: 'INVALID_ARGUMENT', message: 'invalid path' } })); return; }
     if (request.method === 'revoked') { res.writeHead(400); res.end(JSON.stringify({ error: { code: 'ROOT_REVOKED', message: 'sensitive path omitted' } })); return; }
     res.end(JSON.stringify({ result: request }));
@@ -57,8 +58,60 @@ test('real HTTP boundary: auth, result, error, redirect, bounded body and timeou
   await assert.rejects(client.call('redirect', {}), /HTTP 302/);
   assert.equal(redirected, false);
   await assert.rejects(client.call('large', {}), /too large/);
+  await assert.rejects(client.call('remote_timeout', {}), error => {
+    assert.equal(error.kind, 'outcome_unknown');
+    return true;
+  });
   const slowClient = new AndroidClient({ url: client.url, token, timeoutMs: 50, maxResponseBytes: 1024 });
   await assert.rejects(slowClient.call('slow', {}), /timeout|timed out/i);
   const wrong = new AndroidClient({ url: client.url, token: 'b'.repeat(64) });
   await assert.rejects(wrong.call('status', {}), /HTTP 401/);
+});
+
+test('direct client URL never carries the bearer to arbitrary origins', () => {
+  assert.throws(() => new AndroidClient({ url: 'https://evil.example:8765/', token }));
+  assert.throws(() => new AndroidClient({ url: 'http://8.8.8.8:8765/', token }));
+  assert.throws(() => new AndroidClient({ url: 'http://192.168.1.10:22/', token }));
+  assert.throws(() => new AndroidClient({ url: 'http://100.100.1.2:22/', token }));
+  // Validated origins keep working; loopback stays available for tests only.
+  new AndroidClient({ url: 'http://192.168.1.10:8765/', token });
+  new AndroidClient({ url: 'http://100.100.1.2:8765/', token });
+  new AndroidClient({ url: 'http://127.0.0.1:1234/', token });
+});
+
+test('bearer redirect and malformed bodies are outcome-unknown, never silent success', async (t) => {
+  const server = createServer(async (req, res) => {
+    let data = ''; for await (const chunk of req) data += chunk;
+    const request = JSON.parse(data);
+    if (request.method === 'redirect') { res.writeHead(302, { location: '/leak' }); res.end(); return; }
+    if (request.method === 'garbage') { res.end('not-json{{{'); return; }
+    if (request.method === 'empty') { res.end(JSON.stringify({ ok: true })); return; }
+    if (request.method === 'boom') { res.writeHead(500); res.end(JSON.stringify({ ok: true })); return; }
+    res.end(JSON.stringify({ result: { ok: true } }));
+  });
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  t.after(() => { server.closeAllConnections(); server.close(); });
+  const client = new AndroidClient({ url: `http://127.0.0.1:${server.address().port}/`, token, timeoutMs: 1000 });
+  for (const method of ['redirect', 'garbage', 'empty', 'boom']) {
+    await assert.rejects(client.call(method, {}), error => {
+      assert.equal(error.kind, 'outcome_unknown');
+      return true;
+    }, method);
+  }
+  // Probes map the same ambiguity to unreachable so auto can fall back.
+  for (const method of ['redirect', 'garbage']) {
+    await assert.rejects(client.callOnce(client.url, method, {}, true, 1000), error => {
+      assert.equal(error.kind, 'unreachable');
+      return true;
+    }, `probe ${method}`);
+  }
+});
+
+test('null response body is outcome-unknown instead of TypeError', async () => {
+  const client = new AndroidClient({ url: 'http://127.0.0.1:9/', token, timeoutMs: 500 });
+  client.fetch = async () => new Response(null, { status: 200 });
+  await assert.rejects(client.call('status', {}), error => {
+    assert.equal(error.kind, 'outcome_unknown');
+    return true;
+  });
 });

@@ -73,6 +73,18 @@ public final class JsonArgs {
         return object.has(key) ? requiredLong(object, key) : fallback;
     }
 
+    public static int requiredInt(JSONObject object, String key, int min, int max) throws ApiException {
+        long value = requiredLong(object, key);
+        if (value < min || value > max) throw new ApiException("INVALID_ARGUMENT", "Invalid parameter");
+        return (int) value;
+    }
+
+    public static int optionalInt(JSONObject object, String key, int fallback, int min, int max)
+            throws ApiException {
+        if (fallback < min || fallback > max) throw new IllegalArgumentException("Invalid integer fallback");
+        return object.has(key) ? requiredInt(object, key, min, max) : fallback;
+    }
+
     public static double requiredDouble(JSONObject object, String key) throws ApiException {
         Object value = value(object, key);
         if (!(value instanceof Number)) {

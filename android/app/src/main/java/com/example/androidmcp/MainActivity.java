@@ -5,6 +5,8 @@ import android.accessibilityservice.AccessibilityServiceInfo;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.NotificationManager;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.ComponentName;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -225,10 +227,18 @@ public final class MainActivity extends Activity {
         ui.add(advancedBody, ui.text("Shell opzionali, con permessi separati. Non sono necessarie per schermo e file.", 14, UiKit.MUTED, false), 14);
         ui.add(advancedBody, ui.button("Autorizza Termux", false, () -> safely(() -> {
             String permission = "com.termux.permission.RUN_COMMAND";
+            if (!isTermuxInstalled()) {
+                dialog("Installa Termux",
+                        "Serve Termux da F-Droid: la versione Play Store è obsoleta e non espone il comando esterno.\n\n"
+                                + "1. Installa Termux da F-Droid.\n"
+                                + "2. Aprila una volta e attendi il setup iniziale.\n"
+                                + "3. Ripremi Autorizza Termux.");
+                return;
+            }
             if (checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED) toast("Permesso Termux già concesso.");
             else requestPermissions(new String[]{permission}, 40);
         })), 14);
-        ui.add(advancedBody, ui.text("Usa l'ambiente utente di Termux, che deve essere installato.", 13, UiKit.MUTED, false), 8);
+        ui.add(advancedBody, ui.text("Usa l'ambiente utente di Termux da F-Droid, da aprire almeno una volta. Opzionale.", 13, UiKit.MUTED, false), 8);
         ui.add(advancedBody, ui.button("Autorizza Shizuku", false, () -> {
             try { toast(ShizukuBridge.requestPermission(this) ? "Permesso Shizuku già concesso." : "Richiesta inviata a Shizuku."); }
             catch (ApiException e) { dialog("Shizuku non disponibile", "Avvia Shizuku e verifica i suoi permessi.\n\nDettaglio: " + e.code); }
@@ -407,17 +417,28 @@ public final class MainActivity extends Activity {
     }
     private void showToken() {
         McpForegroundService.stopNow(); renderStatus();
+        final String value = SecretStore.current(this);
         LinearLayout content = ui.column(); content.setPadding(ui.dp(24), ui.dp(12), ui.dp(24), ui.dp(12));
-        content.addView(ui.text("Sessione interrotta per proteggere la tua chiave. Inseriscila nella configurazione privata dell'agente.", 14, UiKit.MUTED, false));
-        TextView token = ui.text(SecretStore.current(this), 16, UiKit.ACCENT, false);
+        content.addView(ui.text("Sessione interrotta per proteggere la tua chiave. Copiala e incollala nella configurazione privata dell'agente, senza condividerla.", 14, UiKit.MUTED, false));
+        TextView token = ui.text(value, 16, UiKit.ACCENT, false);
         token.setTextDirection(View.TEXT_DIRECTION_LTR);
         token.setTypeface(Typeface.MONOSPACE); token.setTextIsSelectable(false);
         token.setPadding(ui.dp(16), ui.dp(16), ui.dp(16), ui.dp(16)); token.setBackground(ui.shape(UiKit.BG, UiKit.BORDER, 12));
         token.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
         token.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS);
         token.setSaveEnabled(false); ui.add(content, token, 16);
-        AlertDialog dialog = new AlertDialog.Builder(this).setTitle("Il tuo token di accesso").setView(content).setPositiveButton("Chiudi", null).create();
-        dialog.getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE); dialog.show();
+        AlertDialog dialog = new AlertDialog.Builder(this).setTitle("Il tuo token di accesso").setView(content)
+                .setPositiveButton("Chiudi", null).setNeutralButton("Copia negli appunti", null).create();
+        dialog.getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
+        // Override the neutral button so a failed copy does not dismiss the dialog and hide the token again.
+        dialog.setOnShowListener(shown -> dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(view ->
+                safely(() -> {
+                    ClipboardManager clipboard = getSystemService(ClipboardManager.class);
+                    if (clipboard == null) { toast("Appunti non disponibili su questo dispositivo."); return; }
+                    clipboard.setPrimaryClip(ClipData.newPlainText("Token MCP Android", value));
+                    toast("Token copiato. Incollalo nella configurazione privata dell'agente.");
+                })));
+        dialog.show();
     }
     private void renderUpdateControls() {
         if (isDestroyed()) return;
@@ -491,6 +512,10 @@ public final class MainActivity extends Activity {
     }
     private void openSettings(String action) { safely(() -> startActivity(new Intent(action))); }
     private void dialog(String title, String message) { if (!isFinishing() && !isDestroyed()) new AlertDialog.Builder(this).setTitle(title).setMessage(message).setPositiveButton("Chiudi", null).show(); }
+    private boolean isTermuxInstalled() {
+        try { getPackageManager().getPackageInfo("com.termux", 0); return true; }
+        catch (PackageManager.NameNotFoundException e) { return false; }
+    }
     private void toast(String message) { Toast.makeText(this, message, Toast.LENGTH_LONG).show(); }
     private void safely(Runnable action) { try { action.run(); } catch (RuntimeException e) { toast("Operazione non disponibile. Riprova dalle impostazioni dell'app."); } }
     private static void replace(TextView view, String value) { if (view != null && !view.getText().toString().equals(value)) view.setText(value); }
@@ -515,7 +540,15 @@ public final class MainActivity extends Activity {
             if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) startRemoteControl();
             else toast("Consenti le notifiche per avviare una sessione visibile e controllabile.");
         }
-        if (request == 40) toast(results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED ? "Termux autorizzato." : "Permesso Termux non concesso.");
+        if (request == 40) {
+            if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) toast("Termux autorizzato.");
+            else dialog("Permesso Termux non concesso",
+                    "Il sistema ha negato il permesso senza dialogo.\n\n"
+                            + "1. Apri Termux una volta e attendi il setup iniziale.\n"
+                            + "2. Se lo hai dal Play Store, reinstallalo da F-Droid: la versione Play è obsoleta e non espone il comando esterno.\n"
+                            + "3. Ripremi Autorizza Termux.\n\n"
+                            + "La shell resta opzionale: schermo e file funzionano senza.");
+        }
         refreshPermissions();
     }
     @Override protected void onSaveInstanceState(Bundle state) {

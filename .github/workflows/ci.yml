@@ -23,6 +23,8 @@ jobs:
 
       - run: npm ci --ignore-scripts
       - run: npm run check
+      - run: npm audit --omit=dev --audit-level=moderate
+      - run: git diff --check
 
       - uses: actions/setup-java@v4
         with:

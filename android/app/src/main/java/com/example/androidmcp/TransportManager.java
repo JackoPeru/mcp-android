@@ -62,8 +62,12 @@ public final class TransportManager {
             wifiCallback = callback();
             vpnCallback = callback();
             try {
+                // Wi-Fi plus Ethernet dock/tethering: same RFC1918 + same-subnet
+                // policy as Wi-Fi (see lanFrom/RpcEndpointServer). VPN stays
+                // excluded here; Tailscale has its own callback below.
                 connectivity.registerNetworkCallback(new NetworkRequest.Builder()
-                        .addTransportType(NetworkCapabilities.TRANSPORT_WIFI).build(), wifiCallback, handler);
+                        .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+                        .addTransportType(NetworkCapabilities.TRANSPORT_ETHERNET).build(), wifiCallback, handler);
             } catch (RuntimeException e) {
                 wifiCallback = null;
             }
@@ -220,7 +224,10 @@ public final class TransportManager {
         try {
             for (Network network : manager.getAllNetworks()) {
                 NetworkCapabilities capabilities = manager.getNetworkCapabilities(network);
-                if (capabilities == null || !capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+                boolean wiredOrWifi = capabilities != null
+                        && (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+                            || capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET));
+                if (!wiredOrWifi
                         || capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) continue;
                 LinkProperties properties = manager.getLinkProperties(network);
                 TransportEndpoint endpoint = lanFrom(properties);

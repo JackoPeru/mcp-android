@@ -13,6 +13,7 @@ public final class EventJournal {
     private static final AtomicLong NEXT = new AtomicLong(1);
     private static final ArrayDeque<Entry> EVENTS = new ArrayDeque<>();
     private static volatile long lastEventTimeMs;
+    private static volatile long lastEventNanos;
 
     private EventJournal() { }
 
@@ -20,6 +21,7 @@ public final class EventJournal {
         long id = NEXT.getAndIncrement();
         long now = System.currentTimeMillis();
         lastEventTimeMs = now;
+        lastEventNanos = System.nanoTime();
         EVENTS.addLast(new Entry(id, now, safe(type, 80),
                 safe(packageName, 200), safe(detail, 200)));
         while (EVENTS.size() > MAX_EVENTS) EVENTS.removeFirst();
@@ -28,6 +30,13 @@ public final class EventJournal {
 
     public static long lastEventTimeMs() {
         return lastEventTimeMs;
+    }
+
+    public static long lastEventAgeMs() {
+        long eventNanos = lastEventNanos;
+        if (eventNanos <= 0) return Long.MAX_VALUE;
+        return java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(
+                Math.max(0, System.nanoTime() - eventNanos));
     }
 
     public static long latestId() {

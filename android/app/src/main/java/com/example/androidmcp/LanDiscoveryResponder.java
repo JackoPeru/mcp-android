@@ -1,6 +1,7 @@
 package com.example.androidmcp;
 
 import android.net.Network;
+import android.os.SystemClock;
 
 import java.io.IOException;
 import java.net.DatagramPacket;
@@ -103,7 +104,7 @@ public final class LanDiscoveryResponder {
             } catch (IllegalArgumentException e) {
                 continue;
             }
-            if (!limiter.allow(source, System.currentTimeMillis())) continue;
+            if (!limiter.allow(source, SystemClock.elapsedRealtime())) continue;
             byte[] requestBytes = new byte[packet.getLength()];
             System.arraycopy(packet.getData(), packet.getOffset(), requestBytes, 0, packet.getLength());
             LanDiscoveryProtocol.Request request;

@@ -51,8 +51,7 @@ public final class McpHttpServer {
     private volatile ThreadPoolExecutor executor;
     private volatile ScheduledExecutorService timeouts;
     private volatile Inet4Address address;
-    private volatile String lanSession;
-    private volatile LanSecureChannel.ReplayGuard lanReplayGuard;
+    private volatile LanSessionState lanState;
 
     public McpHttpServer(Context context) {
         this.context = context.getApplicationContext();
@@ -104,8 +103,8 @@ public final class McpHttpServer {
             configureTimeoutScheduler(scheduler);
             timeoutPool = scheduler;
             if (secureLan) {
-                lanSession = LanSecureChannel.newSessionId();
-                lanReplayGuard = new LanSecureChannel.ReplayGuard();
+                lanState = new LanSessionState(
+                        LanSecureChannel.newSessionId(), new LanSecureChannel.ReplayGuard());
             }
             address = bindAddress;
             serverSocket = socket;
@@ -159,8 +158,7 @@ public final class McpHttpServer {
             timeoutPool.shutdownNow();
         }
         address = null;
-        lanSession = null;
-        lanReplayGuard = null;
+        lanState = null;
     }
 
     public boolean isRunning() {
@@ -214,6 +212,8 @@ public final class McpHttpServer {
         return pool;
     }
 
+    private int consecutiveAcceptFailures = 0;
+
     private void acceptLoop() {
         while (running.get()) {
             Socket client;
@@ -224,6 +224,7 @@ public final class McpHttpServer {
                     return;
                 }
                 client = socket.accept();
+                consecutiveAcceptFailures = 0;
                 String remote = client.getInetAddress() == null ? "" : client.getInetAddress().getHostAddress();
                 if (!clientPolicy.allow(remote)) {
                     close(client);
@@ -237,9 +238,16 @@ public final class McpHttpServer {
             } catch (IOException e) {
                 if (running.get()) {
                     // Avoid a hot CPU loop if the platform starts returning a persistent
-                    // accept error while the listener still appears active.
+                    // accept error (EMFILE/ENFILE) while the listener still appears active.
+                    // Escalate 1s -> 2s -> 4s -> 5s cap so a transient blip recovers fast
+                    // but a persistent FD exhaustion does not drain battery. Reset on
+                    // the next successful accept above.
+                    consecutiveAcceptFailures = Math.min(consecutiveAcceptFailures + 1, 3);
+                    long backoff = LowPowerSessionPolicy.networkAcceptFailureBackoffMs()
+                            * (1L << (consecutiveAcceptFailures - 1));
+                    backoff = Math.min(backoff, 5_000L);
                     try {
-                        Thread.sleep(LowPowerSessionPolicy.networkAcceptFailureBackoffMs());
+                        Thread.sleep(backoff);
                     } catch (InterruptedException interrupted) {
                         Thread.currentThread().interrupt();
                         return;
@@ -378,17 +386,20 @@ public final class McpHttpServer {
             return;
         }
 
-        String session = lanSession;
-        LanSecureChannel.ReplayGuard replayGuard = lanReplayGuard;
-        if (session == null || replayGuard == null || !running.get()) {
+        LanSessionState state = lanState;
+        if (state == null || !running.get()) {
             sendError(client, 503, "SERVICE_STOPPED", "Remote service is stopped");
             return;
         }
+        String session = state.session;
+        LanSecureChannel.ReplayGuard replayGuard = state.replayGuard;
 
         String token = SecretStore.current(context);
         JSONObject request;
+        String requestNonce;
         try {
             JSONObject envelope = parseObject(readBody(input, headers.contentLength));
+            requestNonce = envelope.getString("nonce");
             request = LanSecureChannel.decryptRequest(token, session, envelope, replayGuard);
         } catch (JSONException | ApiException | IllegalArgumentException | HttpException e) {
             sendError(client, 401, "AUTH_INVALID", "Secure LAN authentication required");
@@ -429,16 +440,29 @@ public final class McpHttpServer {
                 response.put("error", new JSONObject().put("code", "INTERNAL").put("message", "Internal server error"));
             } catch (JSONException ignored) { }
         }
-        sendLanJson(client, status, response, token, session);
+        sendLanJson(client, status, response, token, session, requestNonce);
     }
 
     private synchronized String prepareLanSessionForHello() {
-        if (!running.get() || lanSession == null || lanReplayGuard == null) return null;
-        if (lanReplayGuard.needsRotation()) {
-            lanSession = LanSecureChannel.newSessionId();
-            lanReplayGuard = new LanSecureChannel.ReplayGuard();
+        LanSessionState state = lanState;
+        if (!running.get() || state == null) return null;
+        if (state.replayGuard.needsRotation()) {
+            state = new LanSessionState(
+                    LanSecureChannel.newSessionId(), new LanSecureChannel.ReplayGuard());
+            lanState = state;
         }
-        return lanSession;
+        return state.session;
+    }
+
+    static final class LanSessionState {
+        final String session;
+        final LanSecureChannel.ReplayGuard replayGuard;
+
+        LanSessionState(String session, LanSecureChannel.ReplayGuard replayGuard) {
+            if (session == null || replayGuard == null) throw new IllegalArgumentException("LAN state required");
+            this.session = session;
+            this.replayGuard = replayGuard;
+        }
     }
 
     static int httpStatus(String code) {
@@ -619,18 +643,28 @@ public final class McpHttpServer {
         sendJson(socket, status, body, SecurityValidators.MAX_RESPONSE_BYTES);
     }
 
-    private static void sendLanJson(Socket socket, int status, JSONObject body, String token, String session) {
-        JSONObject plaintext = body;
-        if (body.toString().getBytes(StandardCharsets.UTF_8).length > SecurityValidators.MAX_RESPONSE_BYTES) {
+    private static void sendLanJson(Socket socket, int status, JSONObject body, String token,
+                                    String session, String requestNonce) {
+        JSONObject plaintext = boundLanResponse(body, requestNonce, SecurityValidators.MAX_RESPONSE_BYTES);
+        JSONObject error = plaintext.optJSONObject("error");
+        if (error != null && "RESPONSE_TOO_LARGE".equals(error.optString("code"))) {
             status = 500;
-            plaintext = new JSONObject();
-            try {
-                plaintext.put("error", new JSONObject()
-                        .put("code", "RESPONSE_TOO_LARGE").put("message", "Response too large"));
-            } catch (JSONException ignored) { }
         }
         JSONObject envelope = LanSecureChannel.encryptResponse(token, session, plaintext);
         sendJson(socket, status, envelope, MAX_LAN_WIRE_RESPONSE_BYTES);
+    }
+
+    static JSONObject boundLanResponse(JSONObject body, String requestNonce, int maxBytes) {
+        try {
+            JSONObject candidate = new JSONObject(body.toString()).put("requestNonce", requestNonce);
+            if (candidate.toString().getBytes(StandardCharsets.UTF_8).length <= maxBytes) return candidate;
+            return new JSONObject()
+                    .put("error", new JSONObject()
+                            .put("code", "RESPONSE_TOO_LARGE").put("message", "Response too large"))
+                    .put("requestNonce", requestNonce);
+        } catch (JSONException e) {
+            throw new IllegalArgumentException("Unable to bind LAN response", e);
+        }
     }
 
     private static void sendJson(Socket socket, int status, JSONObject body, int maxBytes) {

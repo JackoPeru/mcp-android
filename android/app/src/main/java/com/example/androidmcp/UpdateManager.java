@@ -15,6 +15,7 @@ import android.provider.Settings;
 import androidx.core.content.FileProvider;
 
 import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.BufferedInputStream;
@@ -39,6 +40,7 @@ public final class UpdateManager {
             "https://api.github.com/repos/JackoPeru/mcp-android/releases/latest";
     private static final String PREFS = "updates";
     private static final String LAST_CHECK = "lastCheck";
+    private static final String LAST_RELEASE = "lastRelease";
     private static final long AUTO_CHECK_INTERVAL_MS = 24L * 60L * 60L * 1000L;
     private static final long MAX_APK_BYTES = 100L * 1024L * 1024L;
     private static final int MAX_JSON_BYTES = 512 * 1024;
@@ -47,6 +49,7 @@ public final class UpdateManager {
     private static final ThreadPoolExecutor EXECUTOR =
             LowPowerSessionPolicy.createSingleIdleWorkerExecutor("android-mcp-updater");
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
+    private static final AtomicBoolean CHECKING = new AtomicBoolean(false);
     private static final AtomicBoolean DOWNLOADING = new AtomicBoolean(false);
     private static final Set<String> DOWNLOAD_HOSTS = new HashSet<>();
     private static final Set<String> API_HOSTS = new HashSet<>();
@@ -75,38 +78,76 @@ public final class UpdateManager {
         public final String apkUrl;
         public final String hashUrl;
         public final String apkName;
+        public final String expectedSha256;
         public final String notes;
 
         Release(String version, String tag, String apkUrl, String hashUrl,
-                String apkName, String notes) {
+                String apkName, String expectedSha256, String notes) {
             this.version = version;
             this.tag = tag;
             this.apkUrl = apkUrl;
             this.hashUrl = hashUrl;
             this.apkName = apkName;
+            this.expectedSha256 = expectedSha256;
             this.notes = notes;
         }
 
+        JSONObject json() throws JSONException {
+            return new JSONObject()
+                    .put("version", version)
+                    .put("tag", tag)
+                    .put("apkUrl", apkUrl)
+                    .put("hashUrl", hashUrl)
+                    .put("apkName", apkName)
+                    .put("expectedSha256", expectedSha256)
+                    .put("notes", notes);
+        }
+
+        static Release from(JSONObject object) throws Exception {
+            String tag = object.getString("tag");
+            String version = Versioning.normalizeTag(tag);
+            if (!version.equals(object.getString("version"))) throw new IOException("Cached release version mismatch");
+            String apkName = "mcp-android-" + version + "-debug.apk";
+            if (!apkName.equals(object.getString("apkName"))) throw new IOException("Cached release asset mismatch");
+            String expected = object.getString("expectedSha256").toLowerCase(Locale.ROOT);
+            if (!expected.matches("^[a-f0-9]{64}$")) throw new IOException("Cached release checksum invalid");
+            String notes = object.optString("notes", "");
+            if (notes.length() > 4000) notes = notes.substring(0, 4000);
+            return new Release(version, tag,
+                    UpdateValidation.requireDownloadUrl(object.getString("apkUrl")),
+                    UpdateValidation.requireDownloadUrl(object.getString("hashUrl")),
+                    apkName, expected, notes);
+        }
     }
 
     public static void check(Activity activity, boolean force, Callback callback) {
         SharedPreferences prefs = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         long now = System.currentTimeMillis();
-        if (!force && now - prefs.getLong(LAST_CHECK, 0) < AUTO_CHECK_INTERVAL_MS) return;
+        long last = prefs.getLong(LAST_CHECK, 0);
+        if (!force && last > 0 && now >= last && now - last < AUTO_CHECK_INTERVAL_MS) {
+            Release cached = restoreCachedRelease(prefs);
+            if (cached != null) {
+                EXECUTOR.execute(() -> deliverRelease(activity, cached, callback));
+                return;
+            }
+        }
+        if (!CHECKING.compareAndSet(false, true)) {
+            state(callback, "Controllo aggiornamenti già in corso.");
+            return;
+        }
         state(callback, "Controllo aggiornamenti…");
         EXECUTOR.execute(() -> {
             try {
                 Release release = fetchLatest();
-                prefs.edit().putLong(LAST_CHECK, System.currentTimeMillis()).apply();
-                String current = currentVersion(activity);
-                if (Versioning.compare(release.version, current) > 0) {
-                    File downloaded = findDownloadedUpdate(activity, release);
-                    MAIN.post(() -> callback.onUpdateAvailable(release, downloaded));
-                } else {
-                    MAIN.post(() -> callback.onNoUpdate(current));
-                }
+                prefs.edit()
+                        .putLong(LAST_CHECK, System.currentTimeMillis())
+                        .putString(LAST_RELEASE, release.json().toString())
+                        .apply();
+                deliverRelease(activity, release, callback);
             } catch (Exception e) {
                 error(callback, "Controllo aggiornamenti non riuscito.");
+            } finally {
+                CHECKING.set(false);
             }
         });
     }
@@ -132,6 +173,7 @@ public final class UpdateManager {
     public static void installDownloaded(Activity activity, Release release, File apk, Callback callback) {
         try {
             requireManagedUpdateFile(activity, release, apk);
+            UpdateValidation.requireMatchingSha256(apk, release.expectedSha256);
             verifyApkIdentity(activity, apk, release);
         } catch (Exception e) {
             if (apk != null) apk.delete();
@@ -171,6 +213,7 @@ public final class UpdateManager {
             return null;
         }
         try {
+            UpdateValidation.requireMatchingSha256(ready, release.expectedSha256);
             verifyApkIdentity(context, ready, release);
             return ready;
         } catch (Exception e) {
@@ -180,8 +223,8 @@ public final class UpdateManager {
     }
 
     private static Release fetchLatest() throws Exception {
-        HttpURLConnection connection = open(new URL(RELEASE_API), API_HOSTS);
-        connection.setRequestProperty("Accept", "application/vnd.github+json");
+        HttpURLConnection connection = open(new URL(RELEASE_API), API_HOSTS,
+                "application/vnd.github+json");
         byte[] body = readBounded(connection, MAX_JSON_BYTES);
         JSONObject json = new JSONObject(new String(body, StandardCharsets.UTF_8));
         if (json.optBoolean("draft", true) || json.optBoolean("prerelease", true)) {
@@ -202,17 +245,16 @@ public final class UpdateManager {
             else if (hashName.equals(name)) hashUrl = UpdateValidation.requireDownloadUrl(url);
         }
         if (apkUrl == null || hashUrl == null) throw new IOException("Release assets missing");
+        String expectedSha256 = UpdateValidation.parseHash(new String(
+                readBounded(open(new URL(hashUrl), DOWNLOAD_HOSTS), MAX_HASH_BYTES),
+                StandardCharsets.US_ASCII), apkName);
         String notes = json.optString("body", "");
         if (notes.length() > 4000) notes = notes.substring(0, 4000);
-        return new Release(version, tag, apkUrl, hashUrl, apkName, notes);
+        return new Release(version, tag, apkUrl, hashUrl, apkName, expectedSha256, notes);
     }
 
     private static File downloadAndVerify(Activity activity, Release release, Callback callback)
             throws Exception {
-        String expected = UpdateValidation.parseHash(new String(
-                readBounded(open(new URL(release.hashUrl), DOWNLOAD_HOSTS), MAX_HASH_BYTES),
-                StandardCharsets.US_ASCII), release.apkName);
-
         File directory = updateDirectory(activity);
         if (!directory.exists() && !directory.mkdirs()) throw new IOException("Update cache unavailable");
         File partial = new File(directory, release.apkName + ".part");
@@ -256,7 +298,7 @@ public final class UpdateManager {
             if (declared > 0 && total != declared) throw new IOException("Download incompleto");
             String actual = hex(digest.digest());
             if (!MessageDigest.isEqual(actual.getBytes(StandardCharsets.US_ASCII),
-                    expected.getBytes(StandardCharsets.US_ASCII))) {
+                    release.expectedSha256.getBytes(StandardCharsets.US_ASCII))) {
                 throw new IOException("SHA-256 non valido");
             }
             verifyApkIdentity(activity, partial, release);
@@ -272,6 +314,31 @@ public final class UpdateManager {
     private static File updateDirectory(Context context) {
         File external = context.getExternalFilesDir(null);
         return new File(external != null ? external : context.getCacheDir(), "updates");
+    }
+
+    private static Release restoreCachedRelease(SharedPreferences prefs) {
+        String raw = prefs.getString(LAST_RELEASE, "");
+        if (raw == null || raw.isEmpty()) return null;
+        try {
+            return Release.from(new JSONObject(raw));
+        } catch (Exception e) {
+            prefs.edit().remove(LAST_RELEASE).apply();
+            return null;
+        }
+    }
+
+    private static void deliverRelease(Context context, Release release, Callback callback) {
+        try {
+            String current = currentVersion(context);
+            if (Versioning.compare(release.version, current) > 0) {
+                File downloaded = findDownloadedUpdate(context, release);
+                MAIN.post(() -> callback.onUpdateAvailable(release, downloaded));
+            } else {
+                MAIN.post(() -> callback.onNoUpdate(current));
+            }
+        } catch (Exception e) {
+            error(callback, "Impossibile ripristinare lo stato aggiornamenti.");
+        }
     }
 
     private static void requireManagedUpdateFile(Context context, Release release, File apk) throws IOException {
@@ -314,6 +381,16 @@ public final class UpdateManager {
     }
 
     private static HttpURLConnection open(URL initial, Set<String> hosts) throws Exception {
+        return open(initial, hosts, null);
+    }
+
+    private static HttpURLConnection open(URL initial, Set<String> hosts, String accept) throws Exception {
+        // Blind-spot note: TLS trusts the system store, no SPKI/cert pinning.
+        // A user-installed CA (enterprise MITM) can intercept api.github.com.
+        // Containment is signer-equality (UpdateValidation + verifyApkIdentity):
+        // even a MITM-served APK with valid SHA cannot install without the
+        // historical release certificate. Pinning is intentionally deferred:
+        // GitHub rotates CDN certs and a hardcoded pin risks bricking updates.
         URL current = initial;
         for (int redirect = 0; redirect <= MAX_REDIRECTS; redirect++) {
             if (!"https".equalsIgnoreCase(current.getProtocol())
@@ -324,7 +401,7 @@ public final class UpdateManager {
             connection.setConnectTimeout(8000);
             connection.setReadTimeout(15000);
             connection.setInstanceFollowRedirects(false);
-            connection.setRequestProperty("User-Agent", "MCP-Android-Updater");
+            UpdateValidation.configureRequest(connection, accept);
             int status = connection.getResponseCode();
             if (status >= 300 && status <= 399) {
                 String location = connection.getHeaderField("Location");

@@ -1,6 +1,7 @@
 package com.example.androidmcp;
 
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
@@ -43,11 +44,17 @@ public final class SecurityValidatorsTest {
         assertTrue(SecurityValidators.isValidPage(0L, 200));
         assertFalse(SecurityValidators.isValidPage(-1L, 1));
         assertFalse(SecurityValidators.isValidPage(0L, 201));
-        assertTrue(SecurityValidators.isValidWriteRange(0L, 262144L));
-        assertFalse(SecurityValidators.isValidWriteRange(0L, 262145L));
         assertTrue(SecurityValidators.isValidFileName("notes.txt"));
         assertFalse(SecurityValidators.isValidFileName("../notes.txt"));
         assertFalse(SecurityValidators.isValidFileName("a/b"));
+    }
+
+    @Test
+    public void fileWriteChunkFitsBothTransportWireBudgets() {
+        assertEquals(32 * 1024, SecurityValidators.MAX_FILE_WRITE_BYTES);
+        assertEquals(43_692, SecurityValidators.MAX_FILE_WRITE_BASE64_CHARS);
+        assertTrue(SecurityValidators.isValidWriteRange(0L, SecurityValidators.MAX_FILE_WRITE_BYTES));
+        assertFalse(SecurityValidators.isValidWriteRange(0L, SecurityValidators.MAX_FILE_WRITE_BYTES + 1L));
     }
 
     @Test

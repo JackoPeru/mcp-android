@@ -71,6 +71,15 @@ public final class ScreenSnapshotStoreTest {
         assertEquals(retained, store.latestId());
     }
 
+    @Test public void snapshotRetainsItsCaptureOptionsForWaitChange() throws Exception {
+        ScreenSnapshotStore store = new ScreenSnapshotStore();
+        ScreenSnapshotStore.Snapshot snapshot = store.capture(context("Continue", false), true, 7);
+
+        assertTrue(snapshot.includeInvisible);
+        assertEquals(7, snapshot.maxNodes);
+        assertEquals(snapshot.id, store.findByHash(snapshot.uiHash).id);
+    }
+
     @Test public void pinnedSnapshotsCanStillBeDiffedAfterStoreEviction() throws Exception {
         ScreenSnapshotStore store = new ScreenSnapshotStore();
         ScreenSnapshotStore.Snapshot before = store.capture(context("Before", false));

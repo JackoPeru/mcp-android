@@ -33,6 +33,11 @@ test('MCP discovers tools, validates file paths and routes without accessibility
   assert.equal(oversized.isError, true);
   const traversalWrite = await client.callTool({ name: 'android_file_write', arguments: { rootId: 'docs', path: '../bad', data: '' } });
   assert.equal(traversalWrite.isError, true);
+  const maxChunk = Buffer.alloc(32 * 1024).toString('base64');
+  const acceptedChunk = await client.callTool({ name: 'android_file_write', arguments: { rootId: 'docs', path: 'chunk.bin', data: maxChunk } });
+  assert.equal(acceptedChunk.isError, undefined);
+  const oversizedChunk = await client.callTool({ name: 'android_file_write', arguments: { rootId: 'docs', path: 'chunk.bin', data: Buffer.alloc(32 * 1024 + 1).toString('base64') } });
+  assert.equal(oversizedChunk.isError, true);
   const selector = await client.callTool({ name: 'android_ui_find', arguments: { textContains: 'OK' } });
   assert.equal(selector.isError, undefined);
   await client.callTool({ name: 'android_file_read', arguments: { rootId: 'docs', path: 'report.pdf' } });
@@ -105,4 +110,69 @@ test('actual stdio process initializes and exposes schemas without reaching a ph
   assert.ok(tools.find(t => t.name === 'android_shell'));
   assert.ok(tools.find(t => t.name === 'android_shizuku_shell'));
   assert.ok(tools.find(t => t.name === 'android_batch'));
+});
+
+test('open_uri and shell workdir reject smuggled schemes and traversal', async t => {
+  const calls = [];
+  const server = createMcpServer({ call: async (method, params) => {
+    calls.push({ method, params });
+    return { ok: true };
+  } });
+  const client = new Client({ name: 'validation-test', version: '1' });
+  const [ct, st] = InMemoryTransport.createLinkedPair();
+  await server.connect(st); await client.connect(ct);
+  t.after(async () => { await client.close(); await server.close(); });
+
+  for (const uri of ['file:///etc/passwd', 'content://contacts', 'intent://evil#Intent;', 'javascript:alert(1)', 'ftp://example.com/x']) {
+    const result = await client.callTool({ name: 'android_open_uri', arguments: { uri } });
+    assert.equal(result.isError, true, uri);
+  }
+  for (const uri of ['https://example.com/x', 'http://192.168.1.1/', 'geo:45.4,9.2', 'tel:+3902', 'mailto:a@b.c', 'sms:+3902', 'SMSTO:+3902']) {
+    const result = await client.callTool({ name: 'android_open_uri', arguments: { uri } });
+    assert.equal(result.isError, undefined, uri);
+  }
+  assert.deepEqual(calls.filter(c => c.method === 'open_uri').map(c => c.params.uri), [
+    'https://example.com/x', 'http://192.168.1.1/', 'geo:45.4,9.2', 'tel:+3902', 'mailto:a@b.c', 'sms:+3902', 'SMSTO:+3902',
+  ]);
+
+  for (const workdir of ['../etc', 'a/../../b', 'a\x00b', 'a\x1fb']) {
+    for (const tool of ['android_shell', 'android_shizuku_shell']) {
+      const result = await client.callTool({ name: tool, arguments: { script: 'id', workdir } });
+      assert.equal(result.isError, true, `${tool} ${JSON.stringify(workdir)}`);
+    }
+  }
+  const ok = await client.callTool({ name: 'android_shell', arguments: { script: 'id', workdir: '/data/local/tmp' } });
+  assert.equal(ok.isError, undefined);
+});
+
+test('batch never continues after an outcome-unknown step even when failFast is false', async t => {
+  const calls = [];
+  const server = createMcpServer({ call: async (method, params) => {
+    calls.push({ method, params });
+    if (calls.length === 1) {
+      const error = new Error('operation outcome unknown');
+      error.kind = 'outcome_unknown';
+      throw error;
+    }
+    return { ok: true };
+  } });
+  const client = new Client({ name: 'batch-outcome-test', version: '1' });
+  const [ct, st] = InMemoryTransport.createLinkedPair();
+  await server.connect(st); await client.connect(ct);
+  t.after(async () => { await client.close(); await server.close(); });
+
+  const result = await client.callTool({
+    name: 'android_batch',
+    arguments: {
+      failFast: false,
+      steps: [
+        { method: 'tap', params: { x: 10, y: 10 } },
+        { method: 'tap', params: { x: 20, y: 20 } },
+      ],
+    },
+  });
+  const payload = JSON.parse(result.content[0].text);
+  assert.equal(calls.length, 1);
+  assert.equal(payload.results.length, 1);
+  assert.equal(payload.results[0].ok, false);
 });

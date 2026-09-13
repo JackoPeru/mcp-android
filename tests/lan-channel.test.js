@@ -75,9 +75,12 @@ test('LAN client never sends the bearer or plaintext RPC and verifies server bef
     }
     assert.equal(url.pathname, '/rpc');
     assert.doesNotMatch(options.body, /status|params/);
-    const request = decryptRequest(token, session, JSON.parse(options.body));
+    const requestEnvelope = JSON.parse(options.body);
+    const request = decryptRequest(token, session, requestEnvelope);
     assert.deepEqual(request, { method: 'status', params: {} });
-    return new Response(JSON.stringify(encryptResponse(token, session, { result: { ok: true } })), {
+    return new Response(JSON.stringify(encryptResponse(token, session, {
+      result: { ok: true }, requestNonce: requestEnvelope.nonce,
+    })), {
       status: 200,
       headers: { 'content-type': MEDIA_TYPE },
     });
@@ -101,7 +104,10 @@ test('tampered LAN response is outcome-unknown and invalidates the cached sessio
         proof: helloProof(token, request.nonce, session),
       }), { status: 200 });
     }
-    const response = encryptResponse(token, session, { result: { ok: true } });
+    const requestEnvelope = JSON.parse(options.body);
+    const response = encryptResponse(token, session, {
+      result: { ok: true }, requestNonce: requestEnvelope.nonce,
+    });
     response.ciphertext = response.ciphertext.slice(0, -2) + 'AA';
     return new Response(JSON.stringify(response), { status: 200 });
   };
@@ -130,7 +136,9 @@ test('LAN client uses distinct random request nonces within one authenticated se
     }
     const envelope = JSON.parse(options.body);
     nonces.push(envelope.nonce);
-    return new Response(JSON.stringify(encryptResponse(token, session, { result: { ok: true } })), {
+    return new Response(JSON.stringify(encryptResponse(token, session, {
+      result: { ok: true }, requestNonce: envelope.nonce,
+    })), {
       status: 200,
       headers: { 'content-type': MEDIA_TYPE },
     });
@@ -166,7 +174,9 @@ test('concurrent first LAN calls share one handshake and never reuse a request n
     }
     const envelope = JSON.parse(options.body);
     nonces.push(envelope.nonce);
-    return new Response(JSON.stringify(encryptResponse(token, session, { result: { ok: true } })), {
+    return new Response(JSON.stringify(encryptResponse(token, session, {
+      result: { ok: true }, requestNonce: envelope.nonce,
+    })), {
       status: 200,
       headers: { 'content-type': MEDIA_TYPE },
     });
@@ -185,4 +195,62 @@ test('concurrent first LAN calls share one handshake and never reuse a request n
   assert.equal(new Set(nonces).size, 2);
   assert.match(nonces[0], /^[a-f0-9]{24}$/);
   assert.match(nonces[1], /^[a-f0-9]{24}$/);
+});
+
+test('LAN client rejects an authenticated response replayed for a different request', async () => {
+  const url = 'http://192.168.1.84:8765/';
+  let firstResponse;
+  let rpcCalls = 0;
+  const fetchImpl = async (target, options) => {
+    if (target.pathname === '/hello') {
+      const request = JSON.parse(options.body);
+      return new Response(JSON.stringify({
+        protocol: 'mcp-android-lan-channel', version: 1, nonce: request.nonce, session,
+        proof: helloProof(token, request.nonce, session),
+      }), { status: 200 });
+    }
+    const requestEnvelope = JSON.parse(options.body);
+    rpcCalls++;
+    if (rpcCalls === 1) {
+      firstResponse = encryptResponse(token, session, {
+        result: { sequence: 1 },
+        requestNonce: requestEnvelope.nonce,
+      });
+    }
+    return new Response(JSON.stringify(firstResponse), {
+      status: 200,
+      headers: { 'content-type': MEDIA_TYPE },
+    });
+  };
+  const client = new AndroidClient({
+    token,
+    resolver: { resolve: async () => ({ url, transport: 'lan' }) },
+    fetchImpl,
+  });
+
+  assert.deepEqual(await client.call('status', {}), { sequence: 1 });
+  await assert.rejects(client.call('status', {}), error => {
+    assert.equal(error.kind, 'outcome_unknown');
+    assert.match(error.message, /authentication failed/i);
+    return true;
+  });
+  assert.equal(client.lanSessions.has(url), false);
+});
+
+test('LAN client rejects an authenticated response without request binding', async () => {
+  const url = 'http://192.168.1.84:8765/';
+  const fetchImpl = async (target, options) => {
+    if (target.pathname === '/hello') {
+      const request = JSON.parse(options.body);
+      return new Response(JSON.stringify({
+        protocol: 'mcp-android-lan-channel', version: 1, nonce: request.nonce, session,
+        proof: helloProof(token, request.nonce, session),
+      }), { status: 200 });
+    }
+    return new Response(JSON.stringify(encryptResponse(token, session, { result: { stale: true } })), { status: 200 });
+  };
+  const client = new AndroidClient({
+    token, resolver: { resolve: async () => ({ url, transport: 'lan' }) }, fetchImpl,
+  });
+  await assert.rejects(client.call('status', {}), error => error.kind === 'outcome_unknown');
 });

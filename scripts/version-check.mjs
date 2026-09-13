@@ -22,7 +22,9 @@ if (lock.version !== version || lock.packages?.['']?.version !== version) {
 const gradleVersion = gradle.match(/versionName\s+'([^']+)'/)?.[1];
 if (gradleVersion !== version) fail(`Gradle versionName ${gradleVersion} != ${version}`);
 
-const bridgeVersion = bridge.match(/new McpServer\(\{ name: 'android-private-mcp', version: '([^']+)' \}\)/)?.[1];
+const bridgeVersion = bridge.match(/MCP_VERSION\s*=\s*['"]([^'"]+)['"]/)?.[1]
+  ?? bridge.match(/new\s+McpServer\s*\(\s*\{\s*name\s*:\s*['"]android-private-mcp['"]\s*,\s*version\s*:\s*(?:MCP_VERSION|['"]([^'"]+)['"])/)?.[2]
+  ?? bridge.match(/new\s+McpServer\s*\(\s*\{\s*name\s*:\s*['"]android-private-mcp['"]\s*,\s*version\s*:\s*['"]([^'"]+)['"]/)?.[1];
 if (bridgeVersion !== version) fail(`MCP server version ${bridgeVersion} != ${version}`);
 
 if (!buildScript.includes('mcp-android-$version-debug.apk')) {

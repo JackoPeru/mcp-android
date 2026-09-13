@@ -5,7 +5,18 @@ import android.content.SharedPreferences;
 
 import java.security.SecureRandom;
 
-/** Stores only the current bearer secret in private app preferences. */
+/**
+ * Stores only the current bearer secret in private app preferences.
+ *
+ * <p>Blind-spot note (not unit-testable): the token rests in cleartext in
+ * MODE_PRIVATE prefs. That is the Android default without EncryptedSharedPreferences;
+ * on a rooted device, via {@code adb backup} (blocked by allowBackup=false),
+ * {@code run-as}, or Shizuku file read, it is extractable. Mitigations in place:
+ * allowBackup=false + dataExtractionRules exclude sharedprefs from cloud transfer,
+ * FLAG_SECURE token dialog, stop-on-show, and manual rotation revoking old sessions.
+ * A future step is EncryptedSharedPreferences/Keystore; it needs a new dependency
+ * and migration test on real devices, so it is intentionally not done blind here.
+ */
 public final class SecretStore {
     private static final String PREFS = "android_private_mcp";
     private static final String TOKEN = "rpc_token";

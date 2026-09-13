@@ -1,8 +1,10 @@
 package com.example.androidmcp;
 
 import org.junit.Test;
+import org.json.JSONObject;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertThrows;
 
 public final class RpcPolicyTest {
     @Test public void longRunningNonUiCallsDoNotHoldUiLock() {
@@ -18,5 +20,15 @@ public final class RpcPolicyTest {
         assertEquals(RpcPolicy.LockDomain.UI, RpcPolicy.lockDomain("tap"));
         assertEquals(RpcPolicy.LockDomain.NONE, RpcPolicy.lockDomain("status"));
         assertEquals(RpcPolicy.LockDomain.NONE, RpcPolicy.lockDomain("events"));
+    }
+
+    @Test public void timedOutShizukuResultIsNeverReportedAsSuccess() throws Exception {
+        JSONObject result = new JSONObject()
+                .put("timedOut", true)
+                .put("outcomeUnknown", true)
+                .put("exitCode", JSONObject.NULL);
+        ApiException error = assertThrows(ApiException.class,
+                () -> RpcDispatcher.requireKnownShizukuOutcome(result));
+        assertEquals("TIMEOUT", error.code);
     }
 }
