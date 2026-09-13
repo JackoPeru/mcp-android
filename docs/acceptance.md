@@ -1,4 +1,8 @@
-# Acceptance v0.8.9
+# Acceptance v0.8.10
+
+## Delta v0.8.10 (OnePlus 7, Android 12, 13/09/2026)
+
+- La patina tiene acceso lo schermo (`FLAG_KEEP_SCREEN_ON` sulla sua finestra, nessun permesso nuovo): verificato `Awake` oltre il timeout di 120 s senza tocchi e `Dozing` regolare dopo lo spegnimento.
 
 ## Delta v0.8.9 (OnePlus 7, Android 12, 13/09/2026)
 
