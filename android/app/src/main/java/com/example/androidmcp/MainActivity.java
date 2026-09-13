@@ -389,8 +389,8 @@ public final class MainActivity extends Activity {
         notificationBadge.setTextColor(notificationsAllowed ? UiKit.ACCENT : UiKit.MUTED);
         if (overlayBadge != null) {
             replace(overlayBadge, SessionVeil.canShow(this)
-                    ? "Patina di sessione: attiva — lo schermo si colora mentre l'agente agisce."
-                    : "Patina di sessione: spenta — consenti \"Sovrapposizione\" per vederla.");
+                    ? "Patina: si accende da sola quando l'agente usa lo schermo, poi svanisce."
+                    : "Patina: spenta — consenti \"Sovrapposizione\" per vederla quando l'agente agisce.");
         }
         replace(setupDescription, !accessibilityAllowed ? "Vuoi controllare lo schermo? Autorizza Accessibilità. Per usare soltanto i file non è necessaria."
                 : rootCount == 0 ? "Il controllo schermo è configurato. Puoi aggiungere una cartella oppure collegare subito il tuo agente."

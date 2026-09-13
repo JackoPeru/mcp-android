@@ -47,9 +47,11 @@ public final class RpcDispatcher {
                     throw new ApiException("BUSY", "Another UI or system operation is active");
             }
         }
+        if (RpcPolicy.showsVeil(method)) SessionVeil.pulse(context);
         try { return dispatchAllowed(method, params); }
         finally {
             if (lock != null) lock.unlock();
+            if (RpcPolicy.showsVeil(method)) SessionVeil.pulse(context);
         }
     }
 
@@ -73,6 +75,7 @@ public final class RpcDispatcher {
             case "scroll_to": return scrollTo(params);
             case "act_and_observe": return actAndObserve(params);
             case "flow": return flow(params);
+            case "ui_done": return uiDone(params);
             case "ui_tree": return uiTree(params);
             case "ui_find": return uiFind(params);
             case "ui_click": return uiClick(params);
@@ -337,6 +340,18 @@ public final class RpcDispatcher {
     private JSONObject flow(JSONObject params) throws ApiException {
         requireUnlocked();
         return new FlowRuntime(this, requireAccessibility(), snapshots).execute(params);
+    }
+
+    private JSONObject uiDone(JSONObject params) throws ApiException {
+        JsonArgs.only(params);
+        SessionVeil.cancel();
+        JSONObject result = new JSONObject();
+        try {
+            result.put("ok", true);
+            return result;
+        } catch (JSONException e) {
+            throw new ApiException("INTERNAL", "Unable to encode result");
+        }
     }
 
     private static void validateCompositeWait(JSONObject wait) throws ApiException {

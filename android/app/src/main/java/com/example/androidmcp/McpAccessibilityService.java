@@ -412,7 +412,7 @@ public final class McpAccessibilityService extends AccessibilityService {
     }
 
     public byte[] screenshot() throws ApiException {
-        android.view.View veil = SessionVeil.suspendForCapture();
+        Object veil = SessionVeil.suspendForCapture();
         try {
             return screenshotInner();
         } finally {

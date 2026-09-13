@@ -4,7 +4,9 @@ import org.junit.Test;
 import org.json.JSONObject;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThrows;
+import static org.junit.Assert.assertTrue;
 
 public final class RpcPolicyTest {
     @Test public void longRunningNonUiCallsDoNotHoldUiLock() {
@@ -20,6 +22,23 @@ public final class RpcPolicyTest {
         assertEquals(RpcPolicy.LockDomain.UI, RpcPolicy.lockDomain("tap"));
         assertEquals(RpcPolicy.LockDomain.NONE, RpcPolicy.lockDomain("status"));
         assertEquals(RpcPolicy.LockDomain.NONE, RpcPolicy.lockDomain("events"));
+    }
+
+    @Test public void veilFollowsScreenWorkOnly() {
+        assertTrue(RpcPolicy.showsVeil("screen_context"));
+        assertTrue(RpcPolicy.showsVeil("screenshot"));
+        assertTrue(RpcPolicy.showsVeil("ui_click"));
+        assertTrue(RpcPolicy.showsVeil("tap"));
+        assertTrue(RpcPolicy.showsVeil("act_and_observe"));
+        assertTrue(RpcPolicy.showsVeil("flow"));
+        assertFalse(RpcPolicy.showsVeil("status"));
+        assertFalse(RpcPolicy.showsVeil("shell"));
+        assertFalse(RpcPolicy.showsVeil("file_read"));
+        assertFalse(RpcPolicy.showsVeil("diagnostics"));
+        assertFalse(RpcPolicy.showsVeil("clipboard_get"));
+        assertFalse(RpcPolicy.showsVeil("volume_set"));
+        assertFalse(RpcPolicy.showsVeil("notifications"));
+        assertFalse(RpcPolicy.showsVeil("ui_done"));
     }
 
     @Test public void timedOutShizukuResultIsNeverReportedAsSuccess() throws Exception {

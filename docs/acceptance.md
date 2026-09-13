@@ -1,9 +1,14 @@
-# Acceptance v0.8.7
+# Acceptance v0.8.8
+
+## Delta v0.8.8 (OnePlus 7, Android 12, 13/09/2026)
+
+- Patina animata stile onda + pill STOP istantanea (vedi voce v0.8.7).
+- Patina guidata dall'attività: `pulse()` su ogni RPC visiva (`RpcPolicy.showsVeil`), spegnimento dopo 90 s di inattività UI (copre le pause di ragionamento tra micro-passi), mai all'avvio sessione; shell/file/status restano al buio. Chiusura immediata con il nuovo tool `android_ui_done`, che ogni agente chiama a fine task.
 
 ## Delta v0.8.7 (OnePlus 7, Android 12, 13/09/2026)
 
 - Accesso completo opzionale dietro flag: `MANAGE_EXTERNAL_STORAGE` + interruttore in-app espone la radice `all-files` (tutta la memoria condivisa, senza più cartelle una a una). `Android/data` e `Android/obb` restano bloccati con `OPERATION_UNSUPPORTED` (limite di sistema). Stesso contratto JSON/codici del SAF, test JVM dedicati, verificato live (`roots`, `list`, `read`, `write`+`delete` di pulizia, traversal e `data` rifiutati).
-- Patina di sessione: velo fullscreen non interagibile (`SYSTEM_ALERT_WINDOW`, solo con consenso) mentre l'agente è attivo; sparisce allo STOP. Per gli screenshot l'agente non la vede mai: `screenshot()` la sospende per un frame e la ripristina in `finally` (se la sessione cade nel mezzo, resta giustamente spenta).
+- Patina di sessione: onde animate fullscreen non interagibili più pill STOP toccabile in basso al centro (`SYSTEM_ALERT_WINDOW`, solo con consenso). Il velo non intercetta i tocchi perché mangerebbe anche i gesti iniettati dell'agente (stesso canale di input); la pill è una finestra separata e l'arresto è istantaneo via `stopNow`. Per gli screenshot l'agente non vede mai né onde né pill: `screenshot()` sospende tutto per un frame e ripristina in `finally` (se la sessione cade nel mezzo, resta giustamente spento).
 
 ## Delta v0.8.6 (OnePlus 7, Android 12, 13/09/2026)
 
@@ -28,7 +33,7 @@
 ## Scope verificato
 
 - Bridge MCP stdio + trasporto TCP autenticato verso il telefono.
-- **65 tool MCP** invariati rispetto alla v0.7.
+- **66 tool MCP** (65 della v0.7 più `ui_done` per lo spegnimento esplicito della patina).
 - Dual transport:
   - LAN Wi-Fi RFC1918 su TCP 8765;
   - Tailscale 100.64.0.0/10 su TCP 8765;
@@ -182,7 +187,7 @@ Questi punti richiedono collaudo end-to-end sul telefono.
   - cache endpoint LAN validata;
   - invalidazione cache LAN dopo errore di trasporto e fallback della chiamata successiva;
   - UI dual transport;
-  - discovery dei 65 tool MCP tramite stdio.
+  - discovery dei 66 tool MCP tramite stdio.
 - `build-android.ps1`: assembleDebug + testDebugUnitTest + lintDebug completati.
 - Android/JVM: **80 test, 0 failure, 0 error, 0 skipped**:
   - ActionRegistryTest: 2
