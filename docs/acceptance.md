@@ -1,4 +1,8 @@
-# Acceptance v0.8.13
+# Acceptance v0.8.14
+
+## Delta v0.8.14 (OnePlus 7, Android 12, 14/09/2026)
+
+- Sblocco verificato dal vivo: wake + swipe + 4 cifre toccate da coordinate (i tasti PIN OxygenOS non sono nodi cliccabili), esito `unlocked:true method:pin`. Percorso keyguard dedicato (`gestureOnKeyguard`, `tapKeyguardDigit`) dopo che `checkUi`/`onMain` bloccavano anche il flusso di sblocco. Pill ■ Stop premuta dal vivo con arresto immediato.
 
 ## Delta v0.8.13 (14/09/2026)
 

@@ -10,8 +10,8 @@ android {
         applicationId 'com.example.androidmcp'
         minSdk 30
         targetSdk 35
-        versionCode 24
-        versionName '0.8.13'
+        versionCode 25
+        versionName '0.8.14'
     }
 
     compileOptions {
