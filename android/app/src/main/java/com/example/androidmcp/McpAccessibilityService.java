@@ -496,14 +496,29 @@ public final class McpAccessibilityService extends AccessibilityService {
     }
 
     private boolean gesture(GestureDescription description) throws ApiException {
+        return gesture(description, false);
+    }
+
+    /**
+     * Gesture path for the keyguard during an explicit unlock: skips ONLY the
+     * locked-screen guard. Reachable solely through {@code unlock_device},
+     * which itself requires the in-app stored PIN plus lockout policy, so a
+     * locked screen stays off-limits to every other RPC.
+     */
+    public boolean gestureOnKeyguard(GestureDescription description) throws ApiException {
+        return gesture(description, true);
+    }
+
+    private boolean gesture(GestureDescription description, boolean allowLocked) throws ApiException {
         if (nativeBusy.get()) throw new ApiException("BUSY", "Native operation in flight");
         java.util.concurrent.CompletableFuture<Boolean> future = new java.util.concurrent.CompletableFuture<>();
         RequestScope scope = RequestScope.CURRENT.get();
+        final boolean keyguardBypass = allowLocked;
         Runnable start = () -> {
             if (future.isDone()) return;
             long generation = 0;
             try {
-                checkUi(scope);
+                checkUi(scope, keyguardBypass);
                 generation = beginNative(scope);
                 final long operationGeneration = generation;
                 // Android normally invokes a gesture callback, but keep the busy gate
@@ -543,12 +558,25 @@ public final class McpAccessibilityService extends AccessibilityService {
     }
 
     private void checkUi(RequestScope scope) throws ApiException {
+        checkUi(scope, false);
+    }
+
+    private void checkUi(RequestScope scope, boolean allowLocked) throws ApiException {
         if (scope != null) scope.check();
-        android.app.KeyguardManager keyguard = getSystemService(android.app.KeyguardManager.class);
-        if (keyguard == null || keyguard.isDeviceLocked() || keyguard.isKeyguardLocked())
-            throw new ApiException("LOCKED_UI", "Device locked");
+        if (!allowLocked) {
+            android.app.KeyguardManager keyguard = getSystemService(android.app.KeyguardManager.class);
+            if (keyguard == null || keyguard.isDeviceLocked() || keyguard.isKeyguardLocked())
+                throw new ApiException("LOCKED_UI", "Device locked");
+        }
         if (ACTIVE.get() != this || !McpForegroundService.isRunning())
             throw new ApiException("SERVICE_STOPPED", "Remote service stopped");
+    }
+
+    /** Swipe used only by the explicit unlock flow on the keyguard. */
+    public boolean swipeOnKeyguard(long x1, long y1, long x2, long y2, long durationMs) throws ApiException {
+        return gestureOnKeyguard(new GestureDescription.Builder()
+                .addStroke(new GestureDescription.StrokeDescription(path(x1, y1, x2, y2), 0, durationMs))
+                .build());
     }
 
     private Path path(long x1, long y1, long x2, long y2) {

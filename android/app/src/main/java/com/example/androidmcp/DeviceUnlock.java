@@ -40,19 +40,36 @@ public final class DeviceUnlock {
             throw new ApiException("PIN_LOCKED", "Too many wrong attempts: re-save the PIN in-app");
         }
         boolean secure = keyguard.isKeyguardSecure();
+        android.util.Log.d(TAG, "unlock start secure=" + secure);
         PowerManager.WakeLock wake = wake(app);
         try {
             awaitInteractive(app, 5_000);
             if (!secure) {
                 swipeUp(service);
             } else {
-                // OxygenOS and most OEM skins show clock + swipe first; the
-                // PIN pad only appears after swiping up. Best effort: ignored
-                // when the pad is already showing.
-                try { swipeUp(service); } catch (ApiException ignored) { }
-                sleep(SETTLE_MS);
-                enterPin(service, DevicePinStore.loadPin(app));
+                // Clock/shade states need a swipe (or two) before the PIN pad
+                // appears. Retry only while zero digits were tapped: completing
+                // a partial entry with a second pass would forge a wrong PIN.
+                String pin = DevicePinStore.loadPin(app);
+                int[] tapped = {0};
+                ApiException lastError = null;
+                for (int round = 0; round < 3; round++) {
+                    tapped[0] = 0;
+                    try { swipeUp(service); } catch (ApiException ignored) { }
+                    sleep(SETTLE_MS);
+                    try {
+                        enterPin(service, pin, tapped);
+                        lastError = null;
+                        break;
+                    } catch (ApiException e) {
+                        if (!"PIN_ENTRY_FAILED".equals(e.code)) throw e;
+                        lastError = e;
+                        if (tapped[0] > 0) break;
+                    }
+                }
+                if (lastError != null) throw lastError;
             }
+            android.util.Log.d(TAG, "entry done, verifying");
             boolean unlocked = awaitUnlocked(keyguard, VERIFY_MS);
             if (unlocked) {
                 DevicePinStore.clearFailures(app);
@@ -90,23 +107,37 @@ public final class DeviceUnlock {
         }
     }
 
+    private static final String TAG = "DeviceUnlock";
+
     private static void swipeUp(McpAccessibilityService service) throws ApiException {
         Point size = service.screenSize();
         long x = size.x / 2L;
-        try {
-            if (!service.swipe(x, size.y - 200L, x, size.y / 3L, 400L)) {
-                throw new ApiException("UNLOCK_FAILED", "Swipe up rejected");
+        // Long edge-to-edge swipe, twice: some keyguards (AOD → lockscreen)
+        // need the first one just to fully wake the layer. Uses the keyguard
+        // gesture path: the normal one refuses locked screens by design.
+        ApiException last = null;
+        for (int attempt = 0; attempt < 2; attempt++) {
+            try {
+                boolean performed = service.swipeOnKeyguard(x, size.y - 50L, x, size.y / 4L, 600L);
+                android.util.Log.d(TAG, "swipeUp attempt " + attempt + " performed=" + performed);
+                if (performed) return;
+                last = new ApiException("UNLOCK_FAILED", "Swipe up rejected");
+            } catch (ApiException e) {
+                last = e;
+                android.util.Log.d(TAG, "swipeUp attempt " + attempt + " error=" + e.code);
+            } catch (RuntimeException e) {
+                last = new ApiException("UNLOCK_FAILED", "Swipe up failed");
+                android.util.Log.d(TAG, "swipeUp attempt " + attempt + " runtime=" + e);
             }
-        } catch (ApiException e) {
-            throw e;
-        } catch (RuntimeException e) {
-            throw new ApiException("UNLOCK_FAILED", "Swipe up failed");
+            sleep(500);
         }
+        throw last == null ? new ApiException("UNLOCK_FAILED", "Swipe up failed") : last;
     }
 
-    private static void enterPin(McpAccessibilityService service, String pin) throws ApiException {
+    private static void enterPin(McpAccessibilityService service, String pin, int[] tapped) throws ApiException {
         for (int i = 0; i < pin.length(); i++) {
             tapDigit(service, String.valueOf(pin.charAt(i)));
+            tapped[0]++;
             sleep(DIGIT_PAUSE_MS);
         }
     }
