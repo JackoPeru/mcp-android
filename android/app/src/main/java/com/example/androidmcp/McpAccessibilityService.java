@@ -174,6 +174,62 @@ public final class McpAccessibilityService extends AccessibilityService {
                 .build());
     }
 
+    /**
+     * Taps a keyguard digit by its on-screen bounds instead of ACTION_CLICK:
+     * OEM PIN keys are often not clickable accessibility nodes, but they
+     * always respond to a real tap at their coordinates. Keyguard-only path
+     * for the explicit unlock flow.
+     */
+    public boolean tapKeyguardDigit(String digit) throws ApiException {
+        // Bounds lookup on main, gesture off main: gesture() blocks on its own
+        // future, so running it on the main thread would deadlock.
+        int[] center = onMainKeyguard(() -> {
+            AccessibilityNodeInfo root = getRootInActiveWindow();
+            if (root == null) throw new ApiException("UI_UNAVAILABLE", "No active accessibility window");
+            try {
+                AccessibilityNodeInfo target = findDigit(root, digit, true);
+                if (target == null) target = findDigit(root, digit, false);
+                if (target == null) throw new ApiException("NOT_FOUND", "Keyguard digit not found");
+                try {
+                    android.graphics.Rect bounds = new android.graphics.Rect();
+                    target.getBoundsInScreen(bounds);
+                    if (bounds.centerX() < 0 || bounds.centerY() < 0
+                            || bounds.width() <= 0 || bounds.height() <= 0) {
+                        throw new ApiException("NOT_FOUND", "Keyguard digit has no bounds");
+                    }
+                    return new int[]{bounds.centerX(), bounds.centerY()};
+                } finally {
+                    target.recycle();
+                }
+            } finally {
+                root.recycle();
+            }
+        });
+        return gestureOnKeyguard(new GestureDescription.Builder()
+                .addStroke(new GestureDescription.StrokeDescription(
+                        path(center[0], center[1], center[0], center[1]), 0, 80))
+                .build());
+    }
+
+    private AccessibilityNodeInfo findDigit(AccessibilityNodeInfo node, String digit, boolean scoped) {
+        if (node == null) return null;
+        CharSequence text = node.getText();
+        boolean textMatch = text != null && digit.equals(text.toString());
+        boolean scopeMatch = !scoped
+                || "com.android.systemui".equals(String.valueOf(node.getPackageName()));
+        if (textMatch && scopeMatch) return AccessibilityNodeInfo.obtain(node);
+        for (int i = 0; i < node.getChildCount(); i++) {
+            AccessibilityNodeInfo child = node.getChild(i);
+            try {
+                AccessibilityNodeInfo found = findDigit(child, digit, scoped);
+                if (found != null) return found;
+            } finally {
+                if (child != null) child.recycle();
+            }
+        }
+        return null;
+    }
+
     public boolean longPress(long x, long y, long durationMs) throws ApiException {
         return gesture(new GestureDescription.Builder()
                 .addStroke(new GestureDescription.StrokeDescription(path(x, y, x, y), 0, durationMs))
@@ -843,6 +899,19 @@ public final class McpAccessibilityService extends AccessibilityService {
     }
 
     private <T> T onMain(ThrowingCallable<T> callable) throws ApiException {
+        return onMain(callable, false);
+    }
+
+    /**
+     * Main-thread hop that skips ONLY the locked-screen guard. Used solely by
+     * the explicit unlock flow (keyguard digit lookup); every other entry
+     * point keeps the default guard.
+     */
+    private <T> T onMainKeyguard(ThrowingCallable<T> callable) throws ApiException {
+        return onMain(callable, true);
+    }
+
+    private <T> T onMain(ThrowingCallable<T> callable, boolean allowLocked) throws ApiException {
         if (nativeBusy.get()) throw new ApiException("BUSY", "Native operation in flight");
         RequestScope scope = RequestScope.CURRENT.get();
         AtomicReference<ApiException> apiError = new AtomicReference<>();
@@ -850,7 +919,7 @@ public final class McpAccessibilityService extends AccessibilityService {
             long generation = 0;
             try {
                 RequestScope.CURRENT.set(scope);
-                checkUi(scope);
+                checkUi(scope, allowLocked);
                 generation = beginNative(scope);
                 return callable.call();
             } catch (ApiException e) {

@@ -19,7 +19,6 @@ import org.json.JSONObject;
  * without tappable digit nodes fail closed with {@code PIN_ENTRY_FAILED}.
  */
 public final class DeviceUnlock {
-    private static final String KEYGUARD_PACKAGE = "com.android.systemui";
     private static final long WAKE_MS = 30_000;
     private static final long SETTLE_MS = 800;
     private static final long DIGIT_PAUSE_MS = 150;
@@ -143,29 +142,19 @@ public final class DeviceUnlock {
     }
 
     private static void tapDigit(McpAccessibilityService service, String digit) throws ApiException {
-        // Exact text match first inside the system keyguard, then anywhere:
-        // on the keyguard screen an exact single-digit text is unambiguous.
-        ApiException keyguardMiss = null;
-        for (boolean scoped : new boolean[]{true, false}) {
-            JSONObject selector = new JSONObject();
-            try {
-                selector.put("text", digit);
-                if (scoped) selector.put("packageName", KEYGUARD_PACKAGE);
-            } catch (JSONException e) {
-                throw new ApiException("INTERNAL", "Unable to encode digit selector");
-            }
-            try {
-                service.clickSelector(selector, 0);
+        // Bounds tap only: ACTION_CLICK fails on non-clickable OEM digit
+        // labels, and the classic click path refuses locked screens by design.
+        // Never log the digit itself.
+        try {
+            if (service.tapKeyguardDigit(digit)) {
+                android.util.Log.d(TAG, "digit tapped by bounds");
                 return;
-            } catch (ApiException e) {
-                if (scoped) { keyguardMiss = e; continue; }
-                throw new ApiException("PIN_ENTRY_FAILED",
-                        "Keyguard digit not tappable on this device (" + e.code + ")");
             }
+        } catch (ApiException e) {
+            throw new ApiException("PIN_ENTRY_FAILED",
+                    "Keyguard digit not tappable on this device (" + e.code + ")");
         }
-        throw new ApiException("PIN_ENTRY_FAILED",
-                "Keyguard digit not tappable on this device ("
-                        + (keyguardMiss == null ? "unknown" : keyguardMiss.code) + ")");
+        throw new ApiException("PIN_ENTRY_FAILED", "Keyguard digit tap rejected");
     }
 
     private static boolean awaitUnlocked(KeyguardManager keyguard, long timeoutMs) {
