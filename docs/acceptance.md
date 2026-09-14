@@ -1,4 +1,8 @@
-# Acceptance v0.8.12
+# Acceptance v0.8.13
+
+## Delta v0.8.13 (14/09/2026)
+
+- Fix salvataggio PIN: `InvalidAlgorithmParameterException: called-provider iv not permitted` — con randomizzazione richiesta, il Keystore vieta IV forniti dal chiamante. Ora l'IV lo genera il Keystore (`getIV()`), in encrypt e sonda. Da verificare sul telefono al rientro.
 
 ## Delta v0.8.12 (OnePlus 7, Android 12, 14/09/2026)
 

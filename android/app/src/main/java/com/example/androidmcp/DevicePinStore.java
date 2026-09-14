@@ -6,6 +6,7 @@ import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyProperties;
 import android.util.Base64;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyStore;
 
@@ -73,10 +74,12 @@ public final class DevicePinStore {
     }
 
     private static void savePinOnce(Context context, String pin) throws Exception {
-        byte[] iv = new byte[12];
-        new java.security.SecureRandom().nextBytes(iv);
         Cipher cipher = Cipher.getInstance(TRANSFORMATION);
-        cipher.init(Cipher.ENCRYPT_MODE, key(), new GCMParameterSpec(GCM_TAG_BITS, iv));
+        // No explicit IV: with randomized encryption required, AndroidKeyStore
+        // rejects caller-provided IVs ("called-provider iv not permitted").
+        cipher.init(Cipher.ENCRYPT_MODE, key());
+        byte[] iv = cipher.getIV();
+        if (iv == null || iv.length != 12) throw new IOException("Keystore did not return a GCM IV");
         byte[] ciphertext = cipher.doFinal(pin.getBytes(StandardCharsets.UTF_8));
         byte[] combined = new byte[iv.length + ciphertext.length];
         System.arraycopy(iv, 0, combined, 0, iv.length);
@@ -149,10 +152,10 @@ public final class DevicePinStore {
     static String probe() {
         try {
             SecretKey k = key();
-            byte[] iv = new byte[12];
-            new java.security.SecureRandom().nextBytes(iv);
             Cipher cipher = Cipher.getInstance(TRANSFORMATION);
-            cipher.init(Cipher.ENCRYPT_MODE, k, new GCMParameterSpec(GCM_TAG_BITS, iv));
+            cipher.init(Cipher.ENCRYPT_MODE, k);
+            byte[] iv = cipher.getIV();
+            if (iv == null || iv.length != 12) return "keystore returned no GCM IV";
             byte[] ciphertext = cipher.doFinal(new byte[]{1});
             Cipher plain = Cipher.getInstance(TRANSFORMATION);
             plain.init(Cipher.DECRYPT_MODE, k, new GCMParameterSpec(GCM_TAG_BITS, iv));
@@ -177,7 +180,6 @@ public final class DevicePinStore {
                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
                 .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
                 .setUserAuthenticationRequired(false)
-                .setRandomizedEncryptionRequired(true)
                 .build());
         return generator.generateKey();
     }
