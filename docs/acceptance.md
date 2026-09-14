@@ -1,4 +1,8 @@
-# Acceptance v0.8.11
+# Acceptance v0.8.12
+
+## Delta v0.8.12 (OnePlus 7, Android 12, 14/09/2026)
+
+- Il dialogo di errore salvataggio PIN mostra anche lo stato della sonda Keystore, così la diagnosi è su un'unica schermata.
 
 ## Delta v0.8.11 (OnePlus 7, Android 12, 13/09/2026)
 

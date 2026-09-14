@@ -303,7 +303,8 @@ public final class MainActivity extends Activity {
                 android.util.Log.e("DevicePinStore", "savePin attempt from settings");
                 DevicePinStore.savePin(this, pin);
             } catch (ApiException e) {
-                dialog("PIN non salvato", e.code);
+                String probe = DevicePinStore.probe();
+                dialog("PIN non salvato", e.code + "\n\nStato keystore: " + (probe == null ? "ok" : probe));
                 return;
             } catch (RuntimeException e) {
                 dialog("PIN non salvato", e.getClass().getSimpleName() + ": " + String.valueOf(e.getMessage()));
