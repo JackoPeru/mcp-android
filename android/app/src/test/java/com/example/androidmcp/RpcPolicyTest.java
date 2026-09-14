@@ -39,6 +39,7 @@ public final class RpcPolicyTest {
         assertFalse(RpcPolicy.showsVeil("volume_set"));
         assertFalse(RpcPolicy.showsVeil("notifications"));
         assertFalse(RpcPolicy.showsVeil("ui_done"));
+        assertTrue(RpcPolicy.showsVeil("unlock_device"));
     }
 
     @Test public void timedOutShizukuResultIsNeverReportedAsSuccess() throws Exception {

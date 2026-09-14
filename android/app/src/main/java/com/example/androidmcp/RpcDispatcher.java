@@ -76,6 +76,7 @@ public final class RpcDispatcher {
             case "act_and_observe": return actAndObserve(params);
             case "flow": return flow(params);
             case "ui_done": return uiDone(params);
+            case "unlock_device": return unlockDevice(params);
             case "ui_tree": return uiTree(params);
             case "ui_find": return uiFind(params);
             case "ui_click": return uiClick(params);
@@ -341,6 +342,13 @@ public final class RpcDispatcher {
     private JSONObject flow(JSONObject params) throws ApiException {
         requireUnlocked();
         return new FlowRuntime(this, requireAccessibility(), snapshots).execute(params);
+    }
+
+    private JSONObject unlockDevice(JSONObject params) throws ApiException {
+        JsonArgs.only(params);
+        // Deliberately no requireUnlocked(): unlocking is the point. The
+        // accessibility service itself must still be enabled.
+        return DeviceUnlock.unlock(context, requireAccessibility());
     }
 
     private JSONObject uiDone(JSONObject params) throws ApiException {

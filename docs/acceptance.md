@@ -1,4 +1,8 @@
-# Acceptance v0.8.10
+# Acceptance v0.8.11
+
+## Delta v0.8.11 (OnePlus 7, Android 12, 13/09/2026)
+
+- Sblocco esplicito `android_unlock_device`: PIN 4-16 cifre salvato cifrato (Keystore) solo in-app, mai trasmesso né leggibile; wake + digitazione su keyguard di sistema o swipe se non sicura; un tentativo verificato per chiamata, lockout dopo 5 errori. Trade-off dichiarato in-app e README: chi ha il token può chiedere lo sblocco. Sonda Keystore con autotest visibile nella card di sblocco (mostra la diagnosi prima del salvataggio).
 
 ## Delta v0.8.10 (OnePlus 7, Android 12, 13/09/2026)
 

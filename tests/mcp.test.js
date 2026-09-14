@@ -18,7 +18,7 @@ test('MCP discovers tools, validates file paths and routes without accessibility
   const [ct, st] = InMemoryTransport.createLinkedPair();
   await server.connect(st); await client.connect(ct);
   t.after(async () => { await client.close(); await server.close(); });
-  assert.equal((await client.listTools()).tools.length, 66);
+  assert.equal((await client.listTools()).tools.length, 67);
   const ui = await client.callTool({ name: 'android_ui_tree', arguments: {} });
   assert.equal(ui.isError, true);
   const roots = await client.callTool({ name: 'android_file_roots', arguments: {} });
@@ -103,7 +103,7 @@ test('actual stdio process initializes and exposes schemas without reaching a ph
   await client.connect(transport);
   t.after(() => client.close());
   const tools = (await client.listTools()).tools;
-  assert.equal(tools.length, 66);
+  assert.equal(tools.length, 67);
   assert.ok(tools.find(t => t.name === 'android_screen_context'));
   assert.ok(tools.find(t => t.name === 'android_screen_diff'));
   assert.ok(tools.find(t => t.name === 'android_wait_idle'));

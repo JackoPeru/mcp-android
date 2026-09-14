@@ -22,7 +22,9 @@ import android.view.WindowInsets;
 import android.view.WindowManager;
 import android.view.accessibility.AccessibilityManager;
 import android.view.accessibility.AccessibilityNodeInfo;
+import android.text.InputType;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
@@ -48,7 +50,7 @@ public final class MainActivity extends Activity {
     private boolean advancedExpanded, startAfterPermission, accessibilityAllowed, notificationsAllowed;
     private int rootCount;
     private TextView heroBadge, heroTitle, heroDescription, errorMessage, lanValue, tailscaleValue;
-    private TextView preferredLabel, accessibilityBadge, notificationBadge, folderBadge, allFilesBadge, overlayBadge, updateStatus;
+    private TextView preferredLabel, accessibilityBadge, notificationBadge, folderBadge, allFilesBadge, overlayBadge, pinBadge, updateStatus;
     private TextView updateLatest, updateNotes, updateProgressLabel;
     private TextView setupDescription, advancedLabel;
     private Button sessionButton, setupButton, updateDownloadButton, updateInstallButton;
@@ -283,6 +285,40 @@ public final class MainActivity extends Activity {
                     toast("Token sostituito. Aggiorna la configurazione del tuo agente.");
                 })).show());
         ui.paintButton(rotate, UiKit.RAISED, UiKit.DANGER); ui.add(pairing, rotate, 12);
+        LinearLayout unlock = ui.card(body);
+        ui.heading(unlock, "key", "Sblocco dispositivo", "Il PIN resta cifrato solo in quest'app e non viene mai trasmesso. Attenzione: chi possiede il token può chiedere lo sblocco. Attivalo solo se ti serve davvero.");
+        pinBadge = ui.text("", 13, UiKit.MUTED, false); ui.add(unlock, pinBadge, 12);
+        EditText pinInput = new EditText(this);
+        pinInput.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_VARIATION_PASSWORD);
+        pinInput.setHint("PIN 4-16 cifre");
+        pinInput.setSaveEnabled(false);
+        ui.add(unlock, pinInput, 12);
+        ui.add(unlock, ui.button("Salva PIN", true, () -> safely(() -> {
+            String pin = pinInput.getText().toString().trim();
+            if (!DevicePinStore.isValidPin(pin)) {
+                dialog("PIN non valido", "Usa 4-16 cifre numeriche. Pattern e password non sono supportati.");
+                return;
+            }
+            try {
+                android.util.Log.e("DevicePinStore", "savePin attempt from settings");
+                DevicePinStore.savePin(this, pin);
+            } catch (ApiException e) {
+                dialog("PIN non salvato", e.code);
+                return;
+            } catch (RuntimeException e) {
+                dialog("PIN non salvato", e.getClass().getSimpleName() + ": " + String.valueOf(e.getMessage()));
+                return;
+            }
+            pinInput.setText("");
+            refreshPinBadge();
+            toast("PIN salvato. L'agente può ora chiedere lo sblocco.");
+        })), 14);
+        ui.add(unlock, ui.button("Rimuovi PIN", false, () -> safely(() -> {
+            DevicePinStore.clearPin(this);
+            pinInput.setText("");
+            refreshPinBadge();
+            toast("PIN rimosso.");
+        })), 14);
         LinearLayout updates = ui.card(body);
         ui.heading(updates, "update", "Sempre aggiornato", "Versione installata " + installedVersion());
         updateStatus = ui.text("Controllo automatico una volta al giorno.", 14, UiKit.MUTED, false); ui.add(updates, updateStatus, 14);
@@ -306,7 +342,7 @@ public final class MainActivity extends Activity {
         ui.heading(battery, "settings", "Continuità in background", "Se Android sospende l'app, controlla le impostazioni della batteria per mantenerla disponibile durante una sessione.");
         ui.add(battery, ui.button("Apri impostazioni app", false, () -> safely(() -> startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName()))))), 16);
         LinearLayout boundaries = ui.card(body);
-        ui.heading(boundaries, "shield", "I limiti ti proteggono", "Nessun aggiramento di PIN, biometria o schermate protette. Android mantiene privati i dati delle altre app e limita le cartelle selezionabili.");
+        ui.heading(boundaries, "shield", "I limiti ti proteggono", "Nessun aggiramento di PIN, biometria o schermate protette — tranne lo sblocco esplicito che hai autorizzato salvando il PIN qui sopra. Android mantiene privati i dati delle altre app e limita le cartelle selezionabili.");
         TextView footer = ui.text("MCP ANDROID  /  CONTROLLO PERSONALE", 10, UiKit.MUTED, true);
         footer.setLetterSpacing(.08f); footer.setGravity(Gravity.CENTER); ui.add(body, footer, 24);
     }
@@ -593,8 +629,21 @@ public final class MainActivity extends Activity {
         super.onSaveInstanceState(state);
     }
     @Override protected void onResume() {
-        super.onResume(); refreshRoots(); refreshPermissions(); handler.removeCallbacks(refreshStatus); handler.post(refreshStatus);
+        super.onResume(); refreshRoots(); refreshPermissions(); refreshPinBadge(); handler.removeCallbacks(refreshStatus); handler.post(refreshStatus);
         UpdateManager.check(this, false, updateCallback);
+    }
+
+    private void refreshPinBadge() {
+        if (pinBadge == null) return;
+        String keystore = DevicePinStore.probe();
+        String suffix = keystore == null ? "" : " Keystore: " + keystore;
+        if (DevicePinStore.isLockedOut(this)) {
+            replace(pinBadge, "Bloccato dopo troppi errori: reinserisci il PIN." + suffix);
+        } else if (DevicePinStore.hasPin(this)) {
+            replace(pinBadge, "PIN impostato." + suffix);
+        } else {
+            replace(pinBadge, "Nessun PIN: lo sblocco da agente è disattivato." + suffix);
+        }
     }
     @Override protected void onPause() { handler.removeCallbacks(refreshStatus); super.onPause(); }
     @Override protected void onDestroy() { handler.removeCallbacksAndMessages(null); super.onDestroy(); }
