@@ -56,8 +56,46 @@ public final class SessionVeil {
     private static WindowManager.LayoutParams veilParams;
     private static WindowManager.LayoutParams pillParams;
     private static long generation;
+    private static android.os.PowerManager.WakeLock wakeLock;
 
     private SessionVeil() { }
+
+    /**
+     * Screen lock held exactly while the indicators are up. The overlay
+     * KEEP_SCREEN_ON flag alone does not hold Deep Doze on all OEM skins
+     * (verified: windows shown, screen still dozes), so the authoritative
+     * PowerManager lock backs it. Released on every hide path; the system
+     * also drops it if the process dies.
+     */
+    private static void holdScreen(Context context) {
+        synchronized (SessionVeil.class) {
+            if (wakeLock != null && wakeLock.isHeld()) return;
+            try {
+                android.os.PowerManager power = ((Context) context.getApplicationContext())
+                        .getSystemService(android.os.PowerManager.class);
+                if (power == null) return;
+                wakeLock = power.newWakeLock(
+                        android.os.PowerManager.SCREEN_BRIGHT_WAKE_LOCK
+                                | android.os.PowerManager.ACQUIRE_CAUSES_WAKEUP,
+                        "mcp:veil");
+                wakeLock.acquire();
+            } catch (RuntimeException e) {
+                wakeLock = null;
+            }
+        }
+    }
+
+    private static void releaseScreen() {
+        synchronized (SessionVeil.class) {
+            if (wakeLock == null) return;
+            try {
+                if (wakeLock.isHeld()) wakeLock.release();
+            } catch (RuntimeException ignored) {
+            } finally {
+                wakeLock = null;
+            }
+        }
+    }
 
     /**
      * Shows the indicators now and schedules them to fade {@link #IDLE_MS}
@@ -169,6 +207,7 @@ public final class SessionVeil {
             } catch (RuntimeException ignored) {
                 hide();
             }
+            if (veil != null) holdScreen(context);
         }
     }
 
@@ -191,6 +230,7 @@ public final class SessionVeil {
             veil = null;
             stopPill = null;
         }
+        releaseScreen();
         Runnable remove = () -> {
             for (View view : pair) {
                 if (view == null) continue;

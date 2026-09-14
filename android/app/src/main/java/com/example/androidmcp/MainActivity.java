@@ -342,6 +342,14 @@ public final class MainActivity extends Activity {
         LinearLayout battery = ui.card(body);
         ui.heading(battery, "settings", "Continuità in background", "Se Android sospende l'app, controlla le impostazioni della batteria per mantenerla disponibile durante una sessione.");
         ui.add(battery, ui.button("Apri impostazioni app", false, () -> safely(() -> startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName()))))), 16);
+        ui.add(battery, ui.button("Disattiva ottimizzazione batteria", false, () -> safely(() -> {
+            android.os.PowerManager power = getSystemService(android.os.PowerManager.class);
+            if (power != null && power.isIgnoringBatteryOptimizations(getPackageName())) {
+                toast("Ottimizzazione già disattivata.");
+                return;
+            }
+            startActivity(new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:" + getPackageName())));
+        })), 14);
         LinearLayout boundaries = ui.card(body);
         ui.heading(boundaries, "shield", "I limiti ti proteggono", "Nessun aggiramento di PIN, biometria o schermate protette — tranne lo sblocco esplicito che hai autorizzato salvando il PIN qui sopra. Android mantiene privati i dati delle altre app e limita le cartelle selezionabili.");
         TextView footer = ui.text("MCP ANDROID  /  CONTROLLO PERSONALE", 10, UiKit.MUTED, true);

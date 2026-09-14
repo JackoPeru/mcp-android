@@ -46,6 +46,11 @@ public final class DeviceUnlock {
             if (!secure) {
                 swipeUp(service);
             } else {
+                // OxygenOS and most OEM skins show clock + swipe first; the
+                // PIN pad only appears after swiping up. Best effort: ignored
+                // when the pad is already showing.
+                try { swipeUp(service); } catch (ApiException ignored) { }
+                sleep(SETTLE_MS);
                 enterPin(service, DevicePinStore.loadPin(app));
             }
             boolean unlocked = awaitUnlocked(keyguard, VERIFY_MS);
@@ -100,24 +105,36 @@ public final class DeviceUnlock {
     }
 
     private static void enterPin(McpAccessibilityService service, String pin) throws ApiException {
-        sleep(SETTLE_MS);
         for (int i = 0; i < pin.length(); i++) {
-            String digit = String.valueOf(pin.charAt(i));
+            tapDigit(service, String.valueOf(pin.charAt(i)));
+            sleep(DIGIT_PAUSE_MS);
+        }
+    }
+
+    private static void tapDigit(McpAccessibilityService service, String digit) throws ApiException {
+        // Exact text match first inside the system keyguard, then anywhere:
+        // on the keyguard screen an exact single-digit text is unambiguous.
+        ApiException keyguardMiss = null;
+        for (boolean scoped : new boolean[]{true, false}) {
             JSONObject selector = new JSONObject();
             try {
                 selector.put("text", digit);
-                selector.put("packageName", KEYGUARD_PACKAGE);
+                if (scoped) selector.put("packageName", KEYGUARD_PACKAGE);
             } catch (JSONException e) {
                 throw new ApiException("INTERNAL", "Unable to encode digit selector");
             }
             try {
                 service.clickSelector(selector, 0);
+                return;
             } catch (ApiException e) {
+                if (scoped) { keyguardMiss = e; continue; }
                 throw new ApiException("PIN_ENTRY_FAILED",
                         "Keyguard digit not tappable on this device (" + e.code + ")");
             }
-            sleep(DIGIT_PAUSE_MS);
         }
+        throw new ApiException("PIN_ENTRY_FAILED",
+                "Keyguard digit not tappable on this device ("
+                        + (keyguardMiss == null ? "unknown" : keyguardMiss.code) + ")");
     }
 
     private static boolean awaitUnlocked(KeyguardManager keyguard, long timeoutMs) {
