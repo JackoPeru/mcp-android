@@ -1,8 +1,9 @@
-# Acceptance v0.8.14
+# Acceptance v0.8.15
 
-## Prossimo lotto (non rilasciato)
+## Delta v0.8.15 (17/09/2026)
 
-- Flag "Schermo bloccato: accesso completo" (default uguale a oggi) oppure solo lettura notifiche + `unlock_device`/`ui_done`. Gate centrale in `dispatch()` prima di lock e velo. Da verificare live.
+- Flag "Schermo bloccato: accesso completo" (default uguale a oggi) oppure solo lettura notifiche + `unlock_device`/`ui_done`. Gate centrale in `dispatch()` prima di lock e velo, con test dedicato. Verifica live alla prima occasione utile.
+- Chiusura residui audit: `kind` nel batch, `TIMEOUT` probe→`unreachable`, refine coordinate complete, cap su `deleteRecursive`, Actions pinnate a SHA, WakeLock con timeout, doc 67/55/106.
 
 ## Delta v0.8.14 (OnePlus 7, Android 12, 14/09/2026)
 
