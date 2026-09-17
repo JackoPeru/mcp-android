@@ -1,5 +1,6 @@
 package com.example.androidmcp;
 
+import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.security.keystore.KeyGenParameterSpec;
@@ -135,12 +136,14 @@ public final class DevicePinStore {
         return failures(context) >= MAX_FAILURES;
     }
 
+    @SuppressLint("ApplySharedPref")
     static void noteFailure(Context context) {
         // commit(), not apply(): a lost counter would silently forgive failures.
         SharedPreferences prefs = prefs(context);
         prefs.edit().putInt(KEY_FAILURES, prefs.getInt(KEY_FAILURES, 0) + 1).commit();
     }
 
+    @SuppressLint("ApplySharedPref")
     static void clearFailures(Context context) {
         prefs(context).edit().putInt(KEY_FAILURES, 0).commit();
     }

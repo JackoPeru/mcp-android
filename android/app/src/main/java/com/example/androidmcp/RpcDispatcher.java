@@ -35,6 +35,10 @@ public final class RpcDispatcher {
 
     public Object dispatch(String method, JSONObject params) throws ApiException {
         RequestScope.checkCurrent();
+        // Before any lock: denied calls must neither pulse the veil nor retain locks.
+        if (isLocked() && LockedAccess.blockedWhileLocked(method, LockedAccess.isFullAccess(context))) {
+            throw new ApiException("LOCKED_UI", "Action unavailable while device is locked");
+        }
         RpcPolicy.LockDomain domain = RpcPolicy.lockDomain(method);
         java.util.concurrent.locks.ReentrantLock lock = lockFor(domain);
         if (lock != null && !lock.tryLock()) {

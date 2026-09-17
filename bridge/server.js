@@ -26,6 +26,22 @@ const shellWorkdir = z.string().max(1024).refine(value => (
 
 const coordinate = z.number().int().min(0).max(16384);
 const normalizedCoordinate = z.number().int().min(0).max(1000);
+// Exactly one complete coordinate system per point: absolute x/y or
+// normalized nx/ny, never partial pairs or mixes. Rejected here instead of
+// failing on the phone.
+const completePoint = (value, suffix) => {
+  const abs = value[`x${suffix}`] !== undefined && value[`y${suffix}`] !== undefined;
+  const norm = value[`nx${suffix}`] !== undefined && value[`ny${suffix}`] !== undefined;
+  const onlyAbsKeys = value[`nx${suffix}`] === undefined && value[`ny${suffix}`] === undefined;
+  const onlyNormKeys = value[`x${suffix}`] === undefined && value[`y${suffix}`] === undefined;
+  return (abs && onlyAbsKeys) || (norm && onlyNormKeys);
+};
+const pointsMessage = 'Provide either absolute or normalized 0..1000 coordinates per point, fully and without mixing';
+const pointRefines = {
+  double_tap: value => completePoint(value, ''),
+  drag: value => completePoint(value, '1') && completePoint(value, '2'),
+  pinch: value => completePoint(value, ''),
+};
 const path = z.string().max(1024).refine(value => value === '' || (
   !value.startsWith('/') && !/[\\\x00-\x1f:]/.test(value) &&
   value.split('/').every(part => part && part !== '.' && part !== '..')
@@ -174,7 +190,9 @@ export function createMcpServer(client) {
   const server = new McpServer({ name: 'android-private-mcp', version: MCP_VERSION });
   const schemas = new Map();
   for (const [method, description, shape, readOnly] of definitions) {
-    const schema = z.object(shape).strict();
+    let schema = z.object(shape).strict();
+    const refinePoints = pointRefines[method];
+    if (refinePoints) schema = schema.refine(refinePoints, pointsMessage);
     schemas.set(method, schema);
     server.registerTool(`android_${method}`, {
       description, inputSchema: schema,
@@ -248,7 +266,10 @@ export function createMcpServer(client) {
           const params = schema.parse(step.params);
           results.push({ index: i, method: step.method, ok: true, result: await client.call(step.method, params) });
         } catch (error) {
-          results.push({ index: i, method: step.method, ok: false, error: error.message });
+          // Propagate kind so consumers can tell outcome_unknown apart from
+          // validation errors without parsing message text.
+          results.push({ index: i, method: step.method, ok: false, error: error.message,
+            ...(error?.kind ? { kind: error.kind } : {}) });
           if (request.failFast || error?.kind === 'outcome_unknown') break;
         }
       }

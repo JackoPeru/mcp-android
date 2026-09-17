@@ -11,6 +11,7 @@ import android.provider.Settings;
 import android.view.Gravity;
 import android.view.View;
 import android.view.WindowManager;
+import android.annotation.SuppressLint;
 import android.widget.Button;
 
 /**
@@ -29,6 +30,7 @@ import android.widget.Button;
  * Without the "Display over other apps" special access the session works
  * exactly as before, just without indicators (see {@link #canShow}).
  */
+@SuppressLint("StaticFieldLeak")
 public final class SessionVeil {
     private static final long FRAME_MS = 50;
     private static final int BASE_TINT = 0x143AA8C8;
@@ -67,9 +69,16 @@ public final class SessionVeil {
      * PowerManager lock backs it. Released on every hide path; the system
      * also drops it if the process dies.
      */
+    // Views are app-context singletons released on every hide path: no leak
+    // beyond process lifetime, hence the class-level StaticFieldLeak suppression.
     private static void holdScreen(Context context) {
+        // Re-acquire on every pulse so the timeout backstop (required by
+        // WakelockTimeout) never fires mid-session; hide() releases promptly.
+        // No views, no lock: without overlay consent there is nothing to keep
+        // the screen on for.
+        releaseScreen();
         synchronized (SessionVeil.class) {
-            if (wakeLock != null && wakeLock.isHeld()) return;
+            if (veil == null) return;
             try {
                 android.os.PowerManager power = ((Context) context.getApplicationContext())
                         .getSystemService(android.os.PowerManager.class);
@@ -78,7 +87,7 @@ public final class SessionVeil {
                         android.os.PowerManager.SCREEN_BRIGHT_WAKE_LOCK
                                 | android.os.PowerManager.ACQUIRE_CAUSES_WAKEUP,
                         "mcp:veil");
-                wakeLock.acquire();
+                wakeLock.acquire(IDLE_MS + 60_000);
             } catch (RuntimeException e) {
                 wakeLock = null;
             }
@@ -108,6 +117,7 @@ public final class SessionVeil {
             current = ++generation;
         }
         show(context);
+        holdScreen(context);
         try {
             Looper main = Looper.getMainLooper();
             if (main == null) return;

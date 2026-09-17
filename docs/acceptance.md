@@ -1,5 +1,9 @@
 # Acceptance v0.8.14
 
+## Prossimo lotto (non rilasciato)
+
+- Flag "Schermo bloccato: accesso completo" (default uguale a oggi) oppure solo lettura notifiche + `unlock_device`/`ui_done`. Gate centrale in `dispatch()` prima di lock e velo. Da verificare live.
+
 ## Delta v0.8.14 (OnePlus 7, Android 12, 14/09/2026)
 
 - Sblocco verificato dal vivo: wake + swipe + 4 cifre toccate da coordinate (i tasti PIN OxygenOS non sono nodi cliccabili), esito `unlocked:true method:pin`. Percorso keyguard dedicato (`gestureOnKeyguard`, `tapKeyguardDigit`) dopo che `checkUi`/`onMain` bloccavano anche il flusso di sblocco. Pill ■ Stop premuta dal vivo con arresto immediato.
@@ -185,7 +189,7 @@ Questi punti richiedono collaudo end-to-end sul telefono.
 - Node: v24.19.0.
 - `npm.cmd run check`:
   - coerenza versione: OK;
-  - **53 test Node, tutti passati**.
+  - **55 test Node, tutti passati**.
 - `npm audit --omit=dev`: **0 vulnerabilità**.
 - Test Node v0.8.3 includono:
   - config Tailscale legacy;
@@ -213,12 +217,13 @@ Questi punti richiedono collaudo end-to-end sul telefono.
   - UI dual transport;
   - discovery dei 67 tool MCP tramite stdio.
 - `build-android.ps1`: assembleDebug + testDebugUnitTest + lintDebug completati.
-- Android/JVM: **103 test, 0 failure, 0 error, 0 skipped**:
+- Android/JVM: **106 test, 0 failure, 0 error, 0 skipped**:
   - ActionRegistryTest: 2
   - AllFilesStoreTest: 8
   - ApkIdentityValidationTest: 4
   - CapabilityRouterTest: 4
   - CoordinateResolverTest: 3
+  - DevicePinStoreTest: 1
   - FlowRuntimeTest: 2
   - FlowTraceTest: 1
   - FlowValidationTest: 4
@@ -228,6 +233,7 @@ Questi punti richiedono collaudo end-to-end sul telefono.
   - LanDiscoveryProtocolTest: 3
   - LanDiscoveryRateLimitTest: 3
   - LanSecureChannelTest: 4
+  - LockedAccessTest: 2
   - LowPowerSessionPolicyTest: 4
   - NetworkAddressPolicyTest: 4
   - NetworkRecoveryPolicyTest: 3
@@ -244,7 +250,7 @@ Questi punti richiedono collaudo end-to-end sul telefono.
   - UpdateManagerTest: 1
   - UpdateValidationTest: 4
   - VersioningTest: 2
-- Lint: **0 errori, 14 warning**:
+- Lint: **0 errori, 20 warning** (nessuno introdotto dal lotto corrente):
   - targetSdk 35 non è l'ultimo SDK disponibile nell'ambiente;
   - `androidx.core:core 1.15.0` non è l'ultima versione disponibile nell'ambiente;
   - 12 stringhe legacy risultano ora inutilizzate dopo il redesign della UI.

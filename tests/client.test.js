@@ -5,6 +5,15 @@ import { once } from 'node:events';
 import { AndroidClient, readConfig } from '../bridge/client.js';
 
 const token = 'a'.repeat(64);
+test('remote TIMEOUT maps to outcome_unknown, or unreachable in probes', () => {
+  const client = new AndroidClient({ url: 'http://127.0.0.1:9/', token });
+  const response = { ok: true, status: 200 };
+  const payload = { error: { code: 'TIMEOUT', message: 'expired' } };
+  assert.throws(() => client.unwrapPayload(response, payload, false),
+    error => error.kind === 'outcome_unknown');
+  assert.throws(() => client.unwrapPayload(response, payload, true),
+    error => error.kind === 'unreachable');
+});
 test('config accepts legacy Tailscale and secure dual transport origins', () => {
   for (const host of ['https://example.com', 'http://192.168.1.5:8765', 'http://100.63.0.1', 'http://100.128.0.1', 'http://user:pass@100.64.0.1', 'http://100.64.0.1/path', 'http://100.64.0.1/?token=x']) {
     assert.throws(() => readConfig({ ANDROID_MCP_URL: host, ANDROID_MCP_TOKEN: token }));

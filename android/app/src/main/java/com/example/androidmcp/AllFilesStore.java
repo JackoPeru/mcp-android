@@ -306,7 +306,8 @@ public final class AllFilesStore {
         if (path.isEmpty()) throw new ApiException("INVALID_ARGUMENT", "Cannot delete authorized root");
         File source = resolve(path);
         if (!source.exists()) throw new ApiException("NOT_FOUND", "Path not found");
-        if (!deleteRecursive(source)) throw new ApiException("WRITE_FAILED", "Delete failed");
+        int[] counter = {0};
+        if (!deleteRecursive(source, counter)) throw new ApiException("WRITE_FAILED", "Delete failed");
         return okResult();
     }
 
@@ -376,12 +377,13 @@ public final class AllFilesStore {
         }
     }
 
-    private static boolean deleteRecursive(File target) {
+    private static boolean deleteRecursive(File target, int[] counter) {
+        if (++counter[0] > MAX_SEARCH_SCAN) return false;
         if (target.isDirectory()) {
             File[] kids = target.listFiles();
             if (kids == null) return false;
             for (File kid : kids) {
-                if (!deleteRecursive(kid)) return false;
+                if (!deleteRecursive(kid, counter)) return false;
             }
         }
         return target.delete();

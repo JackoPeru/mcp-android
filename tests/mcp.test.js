@@ -156,6 +156,37 @@ test('open_uri and shell workdir reject smuggled schemes and traversal', async t
   assert.equal(ok.isError, undefined);
 });
 
+test('gestures require one complete coordinate system', async t => {
+  const calls = [];
+  const server = createMcpServer({ call: async (method, params) => {
+    calls.push({ method, params });
+    return { ok: true };
+  } });
+  const client = new Client({ name: 'gesture-test', version: '1' });
+  const [ct, st] = InMemoryTransport.createLinkedPair();
+  await server.connect(st); await client.connect(ct);
+  t.after(async () => { await client.close(); await server.close(); });
+
+  for (const args of [{}, { x: 10 }, { y: 10 }, { x: 10, nx: 20 }, { x: 10, y: 10, nx: 20 }]) {
+    const result = await client.callTool({ name: 'android_double_tap', arguments: args });
+    assert.equal(result.isError, true, JSON.stringify(args));
+  }
+  for (const args of [{ x: 10, y: 20 }, { nx: 10, ny: 20 }]) {
+    const result = await client.callTool({ name: 'android_double_tap', arguments: args });
+    assert.equal(result.isError, undefined, JSON.stringify(args));
+  }
+  const mixedDrag = await client.callTool({ name: 'android_drag',
+    arguments: { x1: 1, y1: 2, x2: 3, y2: 4, nx1: 5 } });
+  assert.equal(mixedDrag.isError, true);
+  const normDrag = await client.callTool({ name: 'android_drag',
+    arguments: { nx1: 1, ny1: 2, nx2: 3, ny2: 4 } });
+  assert.equal(normDrag.isError, undefined);
+  const pinchAbs = await client.callTool({ name: 'android_pinch',
+    arguments: { x: 100, y: 200, direction: 'in' } });
+  assert.equal(pinchAbs.isError, undefined);
+  assert.equal(calls.length, 4);
+});
+
 test('batch never continues after an outcome-unknown step even when failFast is false', async t => {
   const calls = [];
   const server = createMcpServer({ call: async (method, params) => {
@@ -186,4 +217,5 @@ test('batch never continues after an outcome-unknown step even when failFast is 
   assert.equal(calls.length, 1);
   assert.equal(payload.results.length, 1);
   assert.equal(payload.results[0].ok, false);
+  assert.equal(payload.results[0].kind, 'outcome_unknown');
 });

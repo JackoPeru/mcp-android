@@ -34,6 +34,8 @@ export function readConfig(env = process.env) {
 const LAN_SESSION_MAX_AGE_MS = 10 * 60 * 1000;
 
 function isLoopbackTestOrigin(value) {
+  // Intentionally without a port pin: the test harness binds ephemeral ports.
+  // Loopback only, never routable, so a bearer sent here cannot leave the machine.
   try {
     const endpoint = new URL(value);
     return endpoint.protocol === 'http:' &&
@@ -304,8 +306,12 @@ export class AndroidClient {
       const code = typeof payload.error.code === 'string' && /^[A-Z_]{1,80}$/.test(payload.error.code) ? payload.error.code : 'REMOTE_ERROR';
       // Do not echo remote messages: they can include sensitive document paths or credentials.
       if (code === 'TIMEOUT') {
-        const error = new Error('Android TIMEOUT: operation outcome unknown. Observe the current state before retrying.');
-        error.kind = 'outcome_unknown';
+        // Probes are read-only status checks: same ambiguity, unreachable kind
+        // so the resolver falls back instead of failing hard.
+        const error = new Error(probe
+          ? 'Android endpoint probe timed out.'
+          : 'Android TIMEOUT: operation outcome unknown. Observe the current state before retrying.');
+        error.kind = probe ? 'unreachable' : 'outcome_unknown';
         throw error;
       }
       throw new Error(`Android ${code}`);

@@ -50,7 +50,7 @@ public final class MainActivity extends Activity {
     private boolean advancedExpanded, startAfterPermission, accessibilityAllowed, notificationsAllowed;
     private int rootCount;
     private TextView heroBadge, heroTitle, heroDescription, errorMessage, lanValue, tailscaleValue;
-    private TextView preferredLabel, accessibilityBadge, notificationBadge, folderBadge, allFilesBadge, overlayBadge, pinBadge, updateStatus;
+    private TextView preferredLabel, accessibilityBadge, notificationBadge, folderBadge, allFilesBadge, overlayBadge, pinBadge, lockedBadge, updateStatus;
     private TextView updateLatest, updateNotes, updateProgressLabel;
     private TextView setupDescription, advancedLabel;
     private Button sessionButton, setupButton, updateDownloadButton, updateInstallButton;
@@ -352,6 +352,16 @@ public final class MainActivity extends Activity {
         })), 14);
         LinearLayout boundaries = ui.card(body);
         ui.heading(boundaries, "shield", "I limiti ti proteggono", "Nessun aggiramento di PIN, biometria o schermate protette — tranne lo sblocco esplicito che hai autorizzato salvando il PIN qui sopra. Android mantiene privati i dati delle altre app e limita le cartelle selezionabili.");
+        lockedBadge = ui.text("", 13, UiKit.MUTED, false); ui.add(boundaries, lockedBadge, 12);
+        ui.add(boundaries, ui.button("Schermo bloccato: accesso completo", false, () -> safely(() -> {
+            boolean full = !LockedAccess.isFullAccess(this);
+            if (!LockedAccess.setFullAccess(this, full)) {
+                toast("Impossibile salvare: riprova.");
+                return;
+            }
+            McpForegroundService.stopNow(); refreshLockedAccess(); refreshPermissions(); renderStatus();
+            toast(full ? "Accesso completo a schermo bloccato." : "Solo notifiche a schermo bloccato. Sessione interrotta.");
+        })), 14);
         TextView footer = ui.text("MCP ANDROID  /  CONTROLLO PERSONALE", 10, UiKit.MUTED, true);
         footer.setLetterSpacing(.08f); footer.setGravity(Gravity.CENTER); ui.add(body, footer, 24);
     }
@@ -638,8 +648,15 @@ public final class MainActivity extends Activity {
         super.onSaveInstanceState(state);
     }
     @Override protected void onResume() {
-        super.onResume(); refreshRoots(); refreshPermissions(); refreshPinBadge(); handler.removeCallbacks(refreshStatus); handler.post(refreshStatus);
+        super.onResume(); refreshRoots(); refreshPermissions(); refreshPinBadge(); refreshLockedAccess(); handler.removeCallbacks(refreshStatus); handler.post(refreshStatus);
         UpdateManager.check(this, false, updateCallback);
+    }
+
+    private void refreshLockedAccess() {
+        if (lockedBadge == null) return;
+        replace(lockedBadge, LockedAccess.isFullAccess(this)
+                ? "A schermo bloccato: tutto tranne la UI (file, shell, notifiche)."
+                : "A schermo bloccato: solo lettura notifiche + sblocco.");
     }
 
     private void refreshPinBadge() {
