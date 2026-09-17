@@ -1,4 +1,8 @@
-# Acceptance v0.8.15
+# Acceptance v0.8.16
+
+## Delta v0.8.16 (17/09/2026)
+
+- Toggle schermo-bloccato con etichetta dinamica ("Limita a sole notifiche" / "Attiva accesso completo") più riga di stato esplicita.
 
 ## Delta v0.8.15 (17/09/2026)
 
