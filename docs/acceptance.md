@@ -57,7 +57,7 @@
 ## Scope verificato
 
 - Bridge MCP stdio + trasporto TCP autenticato verso il telefono.
-- **66 tool MCP** (65 della v0.7 più `ui_done` per lo spegnimento esplicito della patina).
+- **67 tool MCP** (65 della v0.7 più `ui_done` per lo spegnimento esplicito della patina e `unlock_device` per lo sblocco esplicito).
 - Dual transport:
   - LAN Wi-Fi RFC1918 su TCP 8765;
   - Tailscale 100.64.0.0/10 su TCP 8765;
@@ -211,7 +211,7 @@ Questi punti richiedono collaudo end-to-end sul telefono.
   - cache endpoint LAN validata;
   - invalidazione cache LAN dopo errore di trasporto e fallback della chiamata successiva;
   - UI dual transport;
-  - discovery dei 66 tool MCP tramite stdio.
+  - discovery dei 67 tool MCP tramite stdio.
 - `build-android.ps1`: assembleDebug + testDebugUnitTest + lintDebug completati.
 - Android/JVM: **103 test, 0 failure, 0 error, 0 skipped**:
   - ActionRegistryTest: 2

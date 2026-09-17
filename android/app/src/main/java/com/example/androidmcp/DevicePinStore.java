@@ -136,12 +136,13 @@ public final class DevicePinStore {
     }
 
     static void noteFailure(Context context) {
+        // commit(), not apply(): a lost counter would silently forgive failures.
         SharedPreferences prefs = prefs(context);
-        prefs.edit().putInt(KEY_FAILURES, prefs.getInt(KEY_FAILURES, 0) + 1).apply();
+        prefs.edit().putInt(KEY_FAILURES, prefs.getInt(KEY_FAILURES, 0) + 1).commit();
     }
 
     static void clearFailures(Context context) {
-        prefs(context).edit().putInt(KEY_FAILURES, 0).apply();
+        prefs(context).edit().putInt(KEY_FAILURES, 0).commit();
     }
 
     /**

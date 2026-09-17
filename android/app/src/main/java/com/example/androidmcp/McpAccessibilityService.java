@@ -360,9 +360,13 @@ public final class McpAccessibilityService extends AccessibilityService {
                 JSONObject input = new JSONObject()
                         .put("keyboardVisible", keyboardVisible)
                         .put("focusedEditable", focused != null && focused.isEditable());
+                // Never reveal that the user is inside our own app (e.g. the
+                // token dialog) unless they explicitly opted in.
+                boolean ownRoot = !includeOwnApp
+                        && getPackageName().equals(String.valueOf(root.getPackageName()));
                 return new JSONObject()
-                        .put("packageName", capped(root.getPackageName()))
-                        .put("windowClass", capped(root.getClassName()))
+                        .put("packageName", ownRoot ? "" : capped(root.getPackageName()))
+                        .put("windowClass", ownRoot ? "" : capped(root.getClassName()))
                         .put("windowId", root.getWindowId())
                         .put("display", display)
                         .put("input", input)

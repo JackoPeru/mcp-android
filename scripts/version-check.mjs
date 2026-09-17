@@ -31,6 +31,12 @@ if (!buildScript.includes('mcp-android-$version-debug.apk')) {
   fail('build-android.ps1 does not derive the APK name from package.json version');
 }
 
+const toolDefinitions = bridge.match(/^\s*\['[a-z_]+', '/gm) ?? [];
+const toolCount = toolDefinitions.length + 1; // +1 for android_batch, registered separately
+if (toolCount !== 67) {
+  fail(`MCP tool count drift: found ${toolCount}, expected 67 (update tests + docs)`);
+}
+
 if (releaseWorkflow.includes('--clobber') || releaseWorkflow.includes('gh release upload')) {
   fail('release workflow must not overwrite existing release assets');
 }
