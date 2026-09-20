@@ -662,7 +662,15 @@ public final class MainActivity extends Activity {
         catch (PackageManager.NameNotFoundException e) { return false; }
     }
     private void toast(String message) { Toast.makeText(this, message, Toast.LENGTH_LONG).show(); }
-    private void safely(Runnable action) { try { action.run(); } catch (RuntimeException e) { toast("Operazione non disponibile. Riprova dalle impostazioni dell'app."); } }
+    private void safely(Runnable action) {
+        try { action.run(); }
+        catch (RuntimeException e) {
+            android.util.Log.e("McpUi", "UI action failed", e);
+            String detail = e.getClass().getSimpleName() + (e.getMessage() == null ? "" : ": " + e.getMessage());
+            if (detail.length() > 160) detail = detail.substring(0, 160);
+            toast("Operazione non disponibile (" + detail + "). Riprova dalle impostazioni dell'app.");
+        }
+    }
     private static void replace(TextView view, String value) { if (view != null && !view.getText().toString().equals(value)) view.setText(value); }
     private void buttonSemantics(View view) {
         view.setAccessibilityDelegate(new View.AccessibilityDelegate() {

@@ -1,4 +1,8 @@
-# Acceptance v0.8.17
+# Acceptance v0.8.18
+
+## Delta v0.8.18 (17/09/2026)
+
+- Errori UI parlanti: `safely()` mostra classe e messaggio dell'eccezione (e logga) invece del solo banner generico.
 
 ## Delta v0.8.17 (17/09/2026)
 
