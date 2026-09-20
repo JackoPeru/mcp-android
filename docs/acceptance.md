@@ -1,4 +1,8 @@
-# Acceptance v0.8.18
+# Acceptance v0.8.19
+
+## Delta v0.8.19 (17/09/2026)
+
+- Tutti i messaggi utente sono popup chiudibili con testo selezionabile e bottone Copia (niente più banner a scomparsa).
 
 ## Delta v0.8.18 (17/09/2026)
 
