@@ -15,6 +15,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.Looper;
 import android.provider.Settings;
 import android.view.Gravity;
 import android.view.View;
@@ -30,7 +31,7 @@ import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
-import android.widget.Toast;
+
 import org.json.JSONObject;
 
 import java.io.File;
@@ -661,7 +662,39 @@ public final class MainActivity extends Activity {
         try { getPackageManager().getPackageInfo("com.termux", 0); return true; }
         catch (PackageManager.NameNotFoundException e) { return false; }
     }
-    private void toast(String message) { Toast.makeText(this, message, Toast.LENGTH_LONG).show(); }
+    private void toast(String message) { notice("MCP Android", message); }
+
+    /**
+     * Every user-facing message is a dismissible popup with selectable text
+     * and a copy button — no more bottom banners that vanish before you can
+     * read them. Safe to call from any thread; never throws.
+     */
+    private void notice(String title, String message) {
+        if (isFinishing() || isDestroyed()) return;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            handler.post(() -> notice(title, message));
+            return;
+        }
+        try {
+            LinearLayout content = ui.column();
+            content.setPadding(ui.dp(24), ui.dp(12), ui.dp(24), ui.dp(12));
+            TextView body = ui.text(message == null ? "" : message, 14, UiKit.TEXT, false);
+            body.setTextIsSelectable(true);
+            ui.add(content, body, 4);
+            AlertDialog dialog = new AlertDialog.Builder(this).setTitle(title).setView(content)
+                    .setPositiveButton("Chiudi", null)
+                    .setNeutralButton("Copia", null).create();
+            dialog.setOnShowListener(shown -> dialog.getButton(AlertDialog.BUTTON_NEUTRAL)
+                    .setOnClickListener(view -> {
+                        try {
+                            ClipboardManager clipboard = getSystemService(ClipboardManager.class);
+                            if (clipboard == null) return;
+                            clipboard.setPrimaryClip(ClipData.newPlainText("MCP Android", message));
+                        } catch (RuntimeException ignored) { }
+                    }));
+            dialog.show();
+        } catch (RuntimeException ignored) { }
+    }
     private void safely(Runnable action) {
         try { action.run(); }
         catch (RuntimeException e) {
