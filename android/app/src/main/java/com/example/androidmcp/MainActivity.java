@@ -277,6 +277,8 @@ public final class MainActivity extends Activity {
         ui.heading(pairing, "key", "Collega il tuo agente", "Il token è la chiave di accesso al telefono. Inseriscilo soltanto nella configurazione privata del tuo agente.");
         ui.add(pairing, ui.button("Mostra token di accesso", true, () -> safely(this::showToken)), 18);
         ui.add(pairing, ui.text("Mostrare il token interrompe la sessione attiva.", 12, UiKit.MUTED, false), 10);
+        ui.add(pairing, ui.button("Guida collegamento agente", false, () -> safely(this::showPairingGuide)), 14);
+        ui.add(pairing, ui.text("Tre passi guidati con token e configurazione già pronti da copiare.", 12, UiKit.MUTED, false), 10);
         Button rotate = ui.button("Revoca e genera nuovo token", false, () -> new AlertDialog.Builder(this)
                 .setTitle("Sostituire il token?")
                 .setMessage("Il controllo remoto si fermerà. Gli agenti configurati con il vecchio token non potranno più accedere.")
@@ -532,6 +534,56 @@ public final class MainActivity extends Activity {
                     toast("Token copiato. Incollalo nella configurazione privata dell'agente.");
                 })));
         dialog.show();
+    }
+
+    private void copyToClipboard(String label, String value) {
+        safely(() -> {
+            ClipboardManager clipboard = getSystemService(ClipboardManager.class);
+            if (clipboard == null) { toast("Appunti non disponibili su questo dispositivo."); return; }
+            clipboard.setPrimaryClip(ClipData.newPlainText(label, value));
+            toast("Copiato negli appunti.");
+        });
+    }
+
+    private void showPairingGuide() {
+        McpForegroundService.stopNow(); renderStatus();
+        final String token = SecretStore.current(this);
+        final String tailscale = tailscaleAddressOrPlaceholder();
+        final String config = "{\n"
+                + "  \"mcpServers\": {\n"
+                + "    \"android\": {\n"
+                + "      \"command\": \"node\",\n"
+                + "      \"args\": [\"C:/path/to/mcp-android/bridge/server.js\"],\n"
+                + "      \"env\": {\n"
+                + "        \"ANDROID_MCP_TRANSPORT\": \"auto\",\n"
+                + "        \"ANDROID_MCP_DISCOVERY\": \"true\",\n"
+                + "        \"ANDROID_MCP_TAILSCALE_URL\": \"" + tailscale + "\",\n"
+                + "        \"ANDROID_MCP_TOKEN\": \"" + token + "\"\n"
+                + "      }\n"
+                + "    }\n"
+                + "  }\n"
+                + "}";
+        LinearLayout content = ui.column(); content.setPadding(ui.dp(24), ui.dp(12), ui.dp(24), ui.dp(12));
+        content.addView(ui.text("Passo 1 — Copia il token con il tasto qui sotto.", 14, UiKit.TEXT, true));
+        ui.add(content, ui.button("1. Copia token", false, () -> copyToClipboard("Token MCP Android", token)), 12);
+        content.addView(ui.text("Passo 2 — Copia la configurazione completa.", 14, UiKit.TEXT, true));
+        ui.add(content, ui.button("2. Copia configurazione", false, () -> copyToClipboard("Configurazione MCP Android", config)), 12);
+        content.addView(ui.text("Passo 3 — Nel tuo agente (Claude, OpenClaw, Hermes o simili) cerca le impostazioni MCP, aggiungi un server stdio e incolla. Sistema il percorso del bridge, serve Node.js 22+, telefono e PC sulla stessa Wi-Fi (o Tailscale fuori casa). Poi premi Avvia qui e verifica con android_status.", 14, UiKit.MUTED, false), 12);
+        AlertDialog dialog = new AlertDialog.Builder(this).setTitle("Collega un agente in 3 passi").setView(content)
+                .setPositiveButton("Chiudi", null).create();
+        dialog.getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
+        dialog.show();
+    }
+
+    private String tailscaleAddressOrPlaceholder() {
+        try {
+            JSONObject status = McpForegroundService.transportStatus();
+            JSONObject endpoints = status.optJSONObject("endpoints");
+            JSONObject tailscale = endpoints == null ? null : endpoints.optJSONObject("tailscale");
+            String address = tailscale == null ? "" : tailscale.optString("address", "");
+            if (!address.isEmpty()) return "http://" + address + ":8765";
+        } catch (RuntimeException ignored) { }
+        return "http://100.x.y.z:8765";
     }
     private void renderUpdateControls() {
         if (isDestroyed()) return;
