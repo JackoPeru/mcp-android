@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { pathToFileURL } from 'node:url';
 import { AndroidClient, readConfig } from './client.js';
 
-export const MCP_VERSION = '0.8.16';
+export const MCP_VERSION = '0.8.17';
 
 const FILE_WRITE_MAX_BYTES = 32 * 1024;
 const FILE_WRITE_MAX_BASE64_CHARS = Math.ceil(FILE_WRITE_MAX_BYTES / 3) * 4;

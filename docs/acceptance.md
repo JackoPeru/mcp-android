@@ -1,4 +1,8 @@
-# Acceptance v0.8.16
+# Acceptance v0.8.17
+
+## Delta v0.8.17 (17/09/2026)
+
+- Guida collegamento agente in 3 passi: copia token + copia configurazione JSON già compilata (IP Tailscale reale quando noto).
 
 ## Delta v0.8.16 (17/09/2026)
 
