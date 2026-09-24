@@ -48,7 +48,7 @@ try {
     if ($currentSemVer -le $previousSemVer) {
         throw "La versione semantica release deve aumentare rispetto a $previousTag."
     }
-    $currentGradle = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot 'android' 'app' 'build.gradle')
+    $currentGradle = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot 'android\app\build.gradle')
     $previousGradle = ((& git show "${previousTag}:android/app/build.gradle") -join "`n")
     if ($LASTEXITCODE -ne 0) { throw 'Impossibile leggere il versionCode della release precedente.' }
     $currentVersionCode = Get-AndroidVersionCode $currentGradle
@@ -64,19 +64,21 @@ try {
     if ($SkipTests) { & (Join-Path $PSScriptRoot 'build-android.ps1') -SkipTests } else { & (Join-Path $PSScriptRoot 'build-android.ps1') }
     if ($LASTEXITCODE -ne 0) { throw 'Build Android fallita.' }
 
-    $apk = Join-Path $PSScriptRoot 'dist' "mcp-android-$version-debug.apk"
+    $apk = Join-Path $PSScriptRoot "dist\mcp-android-$version-debug.apk"
     $hash = "$apk.sha256"
     if (-not (Test-Path -LiteralPath $apk) -or -not (Test-Path -LiteralPath $hash)) {
         throw 'Asset release mancanti.'
     }
 
-    $java = Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot '.tools' 'jdk17') -Filter java.exe -File -Recurse -ErrorAction SilentlyContinue |
+    $java = Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot '.tools\jdk17') -Filter java.exe -File -Recurse -ErrorAction SilentlyContinue |
         Select-Object -First 1
     if ($java) { $env:JAVA_HOME = Split-Path (Split-Path $java.FullName -Parent) -Parent }
-    $buildTools = Get-ChildItem -LiteralPath (Join-Path $env:LOCALAPPDATA 'Android' 'Sdk' 'build-tools') -Directory |
+    $buildTools = Get-ChildItem -LiteralPath (Join-Path $env:LOCALAPPDATA 'Android\Sdk\build-tools') -Directory |
         Sort-Object { [version]$_.Name } -Descending | Select-Object -First 1
     if (-not $buildTools) { throw 'Android build-tools non trovati.' }
-    $apksigner = (Get-Command apksigner -ErrorAction SilentlyContinue)?.Source
+    $apksignerCmd = Get-Command apksigner -ErrorAction SilentlyContinue
+    $apksigner = $null
+    if ($apksignerCmd) { $apksigner = $apksignerCmd.Source }
     if (-not $apksigner) { $apksigner = Join-Path $buildTools.FullName 'apksigner.bat' }
     $signerOutput = & $apksigner verify --verbose --print-certs $apk 2>&1
     if ($LASTEXITCODE -ne 0) { throw 'Firma APK non valida.' }
