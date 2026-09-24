@@ -8,7 +8,8 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Set;
 
-/** Strict JSON object access: no string coercion, unknown keys, or unbounded values. */
+/** Strict JSON object access: no string coercion, unknown keys, or unbounded values.
+ * Phone-side trust-boundary enforcement; method schemas live in bridge/server.js (source of truth). */
 public final class JsonArgs {
     private JsonArgs() { }
 

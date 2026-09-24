@@ -1,9 +1,11 @@
+param([switch]$SkipTests, [switch]$SkipLint)
 $ErrorActionPreference = 'Stop'
 $package = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot 'package.json') | ConvertFrom-Json
 $version = [string]$package.version
 if ($version -notmatch '^\d+\.\d+\.\d+$') { throw 'Versione package.json non valida.' }
-if (-not $env:ANDROID_HOME) { $env:ANDROID_HOME = Join-Path $env:LOCALAPPDATA 'Android/Sdk' }
+if (-not $env:ANDROID_HOME) { $env:ANDROID_HOME = Join-Path $env:LOCALAPPDATA 'Android' 'Sdk' }
 if (-not (Test-Path -LiteralPath $env:ANDROID_HOME)) { throw 'Android SDK non trovato. Imposta ANDROID_HOME.' }
+if (-not (Test-Path -LiteralPath (Join-Path $env:ANDROID_HOME 'build-tools/35.0.0'))) { throw 'Android build-tools 35.0.0 non trovati. Installa build-tools;35.0.0.' }
 if (-not $env:JAVA_HOME -or -not (Test-Path -LiteralPath (Join-Path $env:JAVA_HOME 'bin/java.exe'))) {
     $javaCommand = Get-Command java.exe -ErrorAction SilentlyContinue
     if ($javaCommand) {
@@ -32,7 +34,10 @@ if (-not $env:JAVA_HOME -or -not (Test-Path -LiteralPath (Join-Path $env:JAVA_HO
 }
 Push-Location (Join-Path $PSScriptRoot 'android')
 try {
-    & .\gradlew.bat :app:assembleDebug :app:testDebugUnitTest :app:lintDebug --console=plain
+    $tasks = @(':app:assembleDebug')
+    if (-not $SkipTests) { $tasks += ':app:testDebugUnitTest' }
+    if (-not $SkipLint) { $tasks += ':app:lintDebug' }
+    & .\gradlew.bat @tasks --console=plain
     if ($LASTEXITCODE -ne 0) { throw 'Build o verifica Android fallita.' }
     $deliveryDirectory = Join-Path $PSScriptRoot 'dist'
     New-Item -ItemType Directory -Force -Path $deliveryDirectory | Out-Null

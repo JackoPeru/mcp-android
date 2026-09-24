@@ -2,7 +2,6 @@ package com.example.androidmcp;
 
 import android.content.Context;
 import android.content.Intent;
-import android.content.SharedPreferences;
 import android.net.Uri;
 import android.provider.DocumentsContract;
 
@@ -16,7 +15,6 @@ import java.util.UUID;
 
 /** Persisted, user-selected SAF roots. Root IDs hide provider URIs from callers. */
 public final class FileRootStore {
-    private static final String PREFS = "android_private_mcp";
     private static final String ROOTS = "saf_roots";
     private final Context appContext;
 
@@ -197,7 +195,7 @@ public final class FileRootStore {
     }
 
     private JSONArray readArray() {
-        String raw = prefs().getString(ROOTS, "[]");
+        String raw = PrefsFlags.prefs(appContext).getString(ROOTS, "[]");
         try {
             return new JSONArray(raw);
         } catch (JSONException e) {
@@ -206,12 +204,8 @@ public final class FileRootStore {
     }
 
     private void saveArray(JSONArray array) {
-        if (!prefs().edit().putString(ROOTS, array.toString()).commit()) {
+        if (!PrefsFlags.prefs(appContext).edit().putString(ROOTS, array.toString()).commit()) {
             throw new IllegalStateException("Unable to persist roots");
         }
-    }
-
-    private SharedPreferences prefs() {
-        return appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
     }
 }

@@ -8,6 +8,8 @@ const TOKEN_RE = /^[a-f0-9]{64}$/;
 const SESSION_RE = /^[a-f0-9]{32}$/;
 const NONCE_RE = /^[a-f0-9]{24}$/;
 const PROOF_RE = /^[a-f0-9]{64}$/;
+const BASE64_RE = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+const CIPHERTEXT_MAX_CHARS = 12 * 1024 * 1024;
 
 function tokenBytes(token) {
   if (!TOKEN_RE.test(token ?? '')) throw new Error('Valid LAN channel token required');
@@ -45,7 +47,8 @@ function decrypt(token, session, direction, envelope) {
   const expected = ['ciphertext', 'nonce', 'session', 'version'];
   if (keys.length !== expected.length || keys.some((key, index) => key !== expected[index])) throw new Error('Invalid LAN channel envelope');
   if (envelope.version !== VERSION || envelope.session !== session || !NONCE_RE.test(envelope.nonce ?? '') ||
-      typeof envelope.ciphertext !== 'string' || envelope.ciphertext.length === 0 || envelope.ciphertext.length > 12 * 1024 * 1024) {
+      typeof envelope.ciphertext !== 'string' || envelope.ciphertext.length === 0 || envelope.ciphertext.length > CIPHERTEXT_MAX_CHARS ||
+      !BASE64_RE.test(envelope.ciphertext)) {
     throw new Error('Invalid LAN channel envelope');
   }
   const encrypted = Buffer.from(envelope.ciphertext, 'base64');

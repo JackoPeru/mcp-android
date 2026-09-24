@@ -33,6 +33,23 @@ public final class CapabilityRouterTest {
         assertFalse(redacted.contains("MIIBvTBX"));
     }
 
+    @Test public void privilegedPackageValidationInvariant() {
+        assertTrue(SecurityValidators.isValidPackageName("com.termux"));
+        assertTrue(SecurityValidators.isValidPackageName("moe.shizuku.privileged.api"));
+        assertFalse(SecurityValidators.isValidPackageName(""));
+        assertFalse(SecurityValidators.isValidPackageName("../evil"));
+        assertFalse(SecurityValidators.isValidPackageName("com.example;rm -rf"));
+    }
+
+    @Test public void logTagValidationInvariant() {
+        assertTrue(CapabilityRouter.LOGCAT_TAG.matcher("ActivityManager").matches());
+        assertTrue(CapabilityRouter.LOGCAT_TAG.matcher("a".repeat(80)).matches());
+        assertFalse(CapabilityRouter.LOGCAT_TAG.matcher("").matches());
+        assertFalse(CapabilityRouter.LOGCAT_TAG.matcher("a".repeat(81)).matches());
+        assertFalse(CapabilityRouter.LOGCAT_TAG.matcher("tag with spaces").matches());
+        assertFalse(CapabilityRouter.LOGCAT_TAG.matcher("tag' OR '1'='1").matches());
+    }
+
     @Test public void capabilityMetadataKeepsPrivilegedActionsSeparate() throws Exception {
         java.lang.reflect.Method method = CapabilityRouter.class
                 .getDeclaredMethod("operationClasses");

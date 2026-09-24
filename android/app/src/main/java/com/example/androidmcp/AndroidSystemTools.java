@@ -50,8 +50,8 @@ public final class AndroidSystemTools {
                 if (info.activityInfo == null) continue;
                 String label = String.valueOf(info.loadLabel(pm));
                 String pkg = info.activityInfo.packageName;
-                if (!needle.isEmpty() && !label.toLowerCase(Locale.ROOT).contains(needle)
-                        && !pkg.toLowerCase(Locale.ROOT).contains(needle)) continue;
+                if (!SecurityValidators.containsIgnoreCase(label, needle)
+                        && !SecurityValidators.containsIgnoreCase(pkg, needle)) continue;
                 JSONObject item = new JSONObject();
                 item.put("label", label);
                 item.put("packageName", pkg);

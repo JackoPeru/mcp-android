@@ -13,6 +13,9 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      matrix:
+        node: [22, 24]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -20,9 +23,12 @@ jobs:
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: '24'
+          node-version: ${{ matrix.node }}
           cache: npm
 
+      - run: node -p "'RELEASE_TAG=v' + require('./package.json').version"
+      - name: Set RELEASE_TAG from package.json
+        run: echo "RELEASE_TAG=v$(node -p "require('./package.json').version")" >> "$GITHUB_ENV"
       - run: npm ci --ignore-scripts
       - run: npm run check
       - run: npm audit --omit=dev --audit-level=moderate
@@ -52,3 +58,27 @@ jobs:
           name: android-lint
           path: android/app/build/reports/lint-results-debug.html
           if-no-files-found: ignore
+
+  windows-check:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - run: npm ci --ignore-scripts
+      - name: Node syntax check
+        run: node --check bridge/server.js
+      - name: PowerShell script WhatIf
+        shell: pwsh
+        run: |
+          $PSVersionTable.PSVersion
+          [System.Management.Automation.Language.Parser]::ParseFile("$PWD/build-android.ps1", [ref]$null, [ref]$null) | Out-Null
+          [System.Management.Automation.Language.Parser]::ParseFile("$PWD/publish-release.ps1", [ref]$null, [ref]$null) | Out-Null
+      - run: git diff --check

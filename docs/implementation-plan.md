@@ -1,3 +1,5 @@
+> **Documento storico (design v0.1, approvato 08/09/2026):** conservato come riferimento del disegno iniziale; lo stato verificato corrente è in `docs/acceptance.md` (v0.8.19).
+
 # Android MCP - approved design and implementation plan
 
 Goal: control the owner's Android phone remotely without root or ADB, including files via APIs without UI navigation. User approved implementation September 8, 2026.

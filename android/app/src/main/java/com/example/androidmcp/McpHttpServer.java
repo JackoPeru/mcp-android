@@ -386,7 +386,14 @@ public final class McpHttpServer {
             return;
         }
 
-        LanSessionState state = lanState;
+        // lanState is published/cleared under the same monitor in start()/stop()/
+        // prepareLanSessionForHello: read it here so a concurrent stop() cannot
+        // clear the session between the null-check and the decrypt below.
+        // Transient reads must retry through the 401 path, never cache a copy.
+        final LanSessionState state;
+        synchronized (this) {
+            state = lanState;
+        }
         if (state == null || !running.get()) {
             sendError(client, 503, "SERVICE_STOPPED", "Remote service is stopped");
             return;

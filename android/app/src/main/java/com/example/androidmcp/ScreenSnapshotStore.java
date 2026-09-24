@@ -10,6 +10,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -29,15 +30,12 @@ public final class ScreenSnapshotStore {
             throws ApiException {
         if (context == null) throw new ApiException("INVALID_ARGUMENT", "Missing screen context");
         if (maxNodes < 1 || maxNodes > 500) throw new ApiException("INVALID_ARGUMENT", "Invalid capture node limit");
-        JSONObject copy;
-        try {
-            copy = new JSONObject(context.toString());
-        } catch (JSONException e) {
-            throw new ApiException("INTERNAL", "Unable to copy screen context");
-        }
+        // No defensive copy: compactContext() returns a fresh object per call and
+        // Snapshot treats it as immutable (outputs go through responseCopy()).
+        // This saves one full JSON serialize/parse per capture.
         long id = nextId++;
-        String hash = hash(copy);
-        Snapshot snapshot = new Snapshot(id, hash, copy, includeInvisible, maxNodes);
+        String hash = hash(context);
+        Snapshot snapshot = new Snapshot(id, hash, context, includeInvisible, maxNodes);
         snapshots.addLast(snapshot);
         while (snapshots.size() > MAX_SNAPSHOTS) snapshots.removeFirst();
         return snapshot;
@@ -97,19 +95,30 @@ public final class ScreenSnapshotStore {
             JSONArray removed = new JSONArray();
             JSONArray changed = new JSONArray();
 
-            for (Map.Entry<String, JSONObject> entry : newNodes.entrySet()) {
-                JSONObject before = oldNodes.get(entry.getKey());
-                if (before == null) {
-                    added.put(copy(entry.getValue()));
-                } else if (!canonical(before).equals(canonical(entry.getValue()))) {
-                    changed.put(new JSONObject()
-                            .put("path", entry.getKey())
-                            .put("before", copy(before))
-                            .put("after", copy(entry.getValue())));
+            // uiHash reuse: identical trees skip the per-node walk entirely.
+            // Otherwise one canonical form per node: old side computed once up
+            // front, new side once per node below.
+            if (!from.uiHash.equals(to.uiHash)) {
+                Map<String, String> oldCanon = new HashMap<>(oldNodes.size() * 2 + 1);
+                for (Map.Entry<String, JSONObject> entry : oldNodes.entrySet()) {
+                    oldCanon.put(entry.getKey(), canonical(entry.getValue()));
                 }
-            }
-            for (Map.Entry<String, JSONObject> entry : oldNodes.entrySet()) {
-                if (!newNodes.containsKey(entry.getKey())) removed.put(copy(entry.getValue()));
+                for (Map.Entry<String, JSONObject> entry : newNodes.entrySet()) {
+                    JSONObject beforeObj = oldNodes.get(entry.getKey());
+                    String before = oldCanon.get(entry.getKey());
+                    String after = canonical(entry.getValue());
+                    if (beforeObj == null) {
+                        added.put(copy(entry.getValue()));
+                    } else if (!before.equals(after)) {
+                        changed.put(new JSONObject()
+                                .put("path", entry.getKey())
+                                .put("before", copy(beforeObj))
+                                .put("after", copy(entry.getValue())));
+                    }
+                }
+                for (Map.Entry<String, JSONObject> entry : oldNodes.entrySet()) {
+                    if (!newNodes.containsKey(entry.getKey())) removed.put(copy(entry.getValue()));
+                }
             }
 
             boolean changedAny = !from.uiHash.equals(to.uiHash);

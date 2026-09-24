@@ -1,5 +1,8 @@
 package com.example.androidmcp;
 
+/** IPv4 subnet/range policy for LAN + Tailscale endpoints.
+ * Sibling of SecurityValidators.isTailscaleIpv4 (stricter, rejects leading zeros);
+ * semantics differ intentionally, so they are not merged. */
 public final class NetworkAddressPolicy {
     private NetworkAddressPolicy() { }
 

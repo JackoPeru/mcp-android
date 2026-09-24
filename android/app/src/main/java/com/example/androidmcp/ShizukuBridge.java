@@ -107,6 +107,10 @@ public final class ShizukuBridge {
                 || timeoutMs < 250 || timeoutMs > 12_000) {
             throw new ApiException("INVALID_ARGUMENT", "Invalid Shizuku shell request");
         }
+        // Mirror TermuxBridge: reject NUL bytes and ".." segments before binding.
+        if (workdir.indexOf('\0') >= 0 || hasParentSegment(workdir)) {
+            throw new ApiException("INVALID_ARGUMENT", "Invalid Shizuku shell request");
+        }
         if (!safePing()) throw new ApiException("SHIZUKU_UNAVAILABLE", "Start Shizuku first");
         if (Shizuku.isPreV11()) throw new ApiException("SHIZUKU_UNSUPPORTED", "Shizuku v11 or newer is required");
         if (Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED)
@@ -127,6 +131,14 @@ public final class ShizukuBridge {
         } catch (JSONException e) {
             throw new ApiException("SHIZUKU_BAD_RESPONSE", "Shizuku returned invalid output");
         }
+    }
+
+    static boolean hasParentSegment(String value) {
+        if (value == null) return false;
+        for (String part : value.split("/")) {
+            if ("..".equals(part)) return true;
+        }
+        return false;
     }
 
     public static void disconnect() {

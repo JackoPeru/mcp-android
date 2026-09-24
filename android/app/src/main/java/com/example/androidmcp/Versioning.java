@@ -1,6 +1,9 @@
 package com.example.androidmcp;
 
-/** Small strict semantic-version helper for public release tags. */
+/** Small strict semantic-version helper for public release tags.
+ * Future home is SecurityValidators (fold owned by another agent); kept here to avoid
+ * breaking imports. Do not change semantics. */
+@Deprecated
 public final class Versioning {
     private Versioning() { }
 

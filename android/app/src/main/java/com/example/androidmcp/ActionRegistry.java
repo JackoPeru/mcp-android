@@ -2,7 +2,8 @@ package com.example.androidmcp;
 
 import java.util.Set;
 
-/** Allowlist for actions that may run inside composite UI loops and flows. */
+/** Allowlist for actions that may run inside composite UI loops and flows.
+ * Phone-side enforcement; allowed sets in bridge/server.js are the source of truth. */
 public final class ActionRegistry {
     private static final Set<String> ALLOWED = Set.of(
             "ui_click",

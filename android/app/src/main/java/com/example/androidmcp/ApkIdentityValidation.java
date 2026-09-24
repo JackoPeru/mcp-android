@@ -2,7 +2,10 @@ package com.example.androidmcp;
 
 import java.util.Set;
 
-/** Pure validation rules for a downloaded APK before handing it to Android's installer UI. */
+/** Pure validation rules for a downloaded APK before handing it to Android's installer UI.
+ * Future home is SecurityValidators (fold owned by another agent); kept here to avoid
+ * breaking imports. Do not change semantics. */
+@Deprecated
 public final class ApkIdentityValidation {
     private ApkIdentityValidation() { }
 

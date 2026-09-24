@@ -25,6 +25,7 @@ import android.view.accessibility.AccessibilityManager;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.text.InputType;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
@@ -98,6 +99,14 @@ public final class MainActivity extends Activity {
             renderStatus();
             handler.postDelayed(this, 1000);
         }
+    };
+    // Token/config copies are secrets: auto-clear the clipboard 45s after copy.
+    private static final long CLIPBOARD_CLEAR_MS = 45_000;
+    private final Runnable clearClipboard = () -> {
+        try {
+            ClipboardManager clipboard = getSystemService(ClipboardManager.class);
+            if (clipboard != null) clipboard.setPrimaryClip(ClipData.newPlainText("", ""));
+        } catch (RuntimeException ignored) { }
     };
 
     @Override public void onCreate(Bundle state) {
@@ -292,6 +301,15 @@ public final class MainActivity extends Activity {
         LinearLayout unlock = ui.card(body);
         ui.heading(unlock, "key", "Sblocco dispositivo", "Il PIN resta cifrato solo in quest'app e non viene mai trasmesso. Attenzione: chi possiede il token può chiedere lo sblocco. Attivalo solo se ti serve davvero.");
         pinBadge = ui.text("", 13, UiKit.MUTED, false); ui.add(unlock, pinBadge, 12);
+        CheckBox rpcUnlock = new CheckBox(this);
+        rpcUnlock.setText("Permetti sblocco da agente (solo con token)");
+        rpcUnlock.setChecked(DeviceUnlock.isRpcUnlockAllowed(this));
+        rpcUnlock.setOnCheckedChangeListener((b, on) -> safely(() -> {
+            DeviceUnlock.setRpcUnlockAllowed(this, on);
+            refreshPinBadge();
+            toast(on ? "Sblocco da agente attivato." : "Sblocco da agente disattivato.");
+        }));
+        ui.add(unlock, rpcUnlock, 12);
         EditText pinInput = new EditText(this);
         pinInput.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_VARIATION_PASSWORD);
         pinInput.setHint("PIN 4-16 cifre");
@@ -528,22 +546,23 @@ public final class MainActivity extends Activity {
         dialog.getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
         // Override the neutral button so a failed copy does not dismiss the dialog and hide the token again.
         dialog.setOnShowListener(shown -> dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(view ->
-                safely(() -> {
-                    ClipboardManager clipboard = getSystemService(ClipboardManager.class);
-                    if (clipboard == null) { toast("Appunti non disponibili su questo dispositivo."); return; }
-                    clipboard.setPrimaryClip(ClipData.newPlainText("Token MCP Android", value));
-                    toast("Token copiato. Incollalo nella configurazione privata dell'agente.");
-                })));
+                copyWithAutoClear("Token MCP Android", value)));
         dialog.show();
     }
 
-    private void copyToClipboard(String label, String value) {
+    private void copyWithAutoClear(String label, String value) {
         safely(() -> {
             ClipboardManager clipboard = getSystemService(ClipboardManager.class);
             if (clipboard == null) { toast("Appunti non disponibili su questo dispositivo."); return; }
             clipboard.setPrimaryClip(ClipData.newPlainText(label, value));
-            toast("Copiato negli appunti.");
+            toast("Copiato. Gli appunti verranno svuotati tra 45 secondi.");
+            handler.removeCallbacks(clearClipboard);
+            handler.postDelayed(clearClipboard, CLIPBOARD_CLEAR_MS);
         });
+    }
+
+    private void copyToClipboard(String label, String value) {
+        copyWithAutoClear(label, value);
     }
 
     private void showPairingGuide() {
@@ -564,13 +583,22 @@ public final class MainActivity extends Activity {
                 + "    }\n"
                 + "  }\n"
                 + "}";
-        LinearLayout content = ui.column(); content.setPadding(ui.dp(24), ui.dp(12), ui.dp(24), ui.dp(12));
-        content.addView(ui.text("Passo 1 — Copia il token con il tasto qui sotto.", 14, UiKit.TEXT, true));
-        ui.add(content, ui.button("1. Copia token", false, () -> copyToClipboard("Token MCP Android", token)), 12);
-        content.addView(ui.text("Passo 2 — Copia la configurazione completa.", 14, UiKit.TEXT, true));
-        ui.add(content, ui.button("2. Copia configurazione", false, () -> copyToClipboard("Configurazione MCP Android", config)), 12);
-        content.addView(ui.text("Passo 3 — Nel tuo agente (Claude, OpenClaw, Hermes o simili) cerca le impostazioni MCP, aggiungi un server stdio e incolla. Sistema il percorso del bridge, serve Node.js 22+, telefono e PC sulla stessa Wi-Fi (o Tailscale fuori casa). Poi premi Avvia qui e verifica con android_status.", 14, UiKit.MUTED, false), 12);
-        AlertDialog dialog = new AlertDialog.Builder(this).setTitle("Collega un agente in 3 passi").setView(content)
+        LinearLayout content = ui.column(); content.setPadding(ui.dp(24), ui.dp(16), ui.dp(24), ui.dp(8));
+        content.addView(ui.text("Passo 1", 13, UiKit.ACCENT, true));
+        ui.add(content, ui.text("Copia il token con il tasto qui sotto.", 15, UiKit.TEXT, false), 4);
+        ui.add(content, ui.button("Copia token", true, () -> copyToClipboard("Token MCP Android", token)), 10);
+        content.addView(ui.text("Passo 2", 13, UiKit.ACCENT, true));
+        ui.add(content, ui.text("Copia la configurazione completa.", 15, UiKit.TEXT, false), 4);
+        ui.add(content, ui.button("Copia configurazione", true, () -> copyToClipboard("Configurazione MCP Android", config)), 10);
+        content.addView(ui.text("Passo 3", 13, UiKit.ACCENT, true));
+        ui.add(content, ui.text("Nel tuo agente (Claude, OpenClaw, Hermes o simili) apri le impostazioni MCP, aggiungi un server stdio e incolla.", 15, UiKit.TEXT, false), 4);
+        ui.add(content, ui.text("Sistema il percorso del bridge, serve Node.js 22+, telefono e PC sulla stessa Wi-Fi (o Tailscale fuori casa). Poi premi Avvia qui e verifica con android_status.", 13, UiKit.MUTED, false), 8);
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        scroll.setClipToPadding(false);
+        scroll.setVerticalScrollBarEnabled(false);
+        scroll.addView(content, new ScrollView.LayoutParams(-1, -2));
+        AlertDialog dialog = new AlertDialog.Builder(this).setTitle("Collega un agente in 3 passi").setView(scroll)
                 .setPositiveButton("Chiudi", null).create();
         dialog.getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
         dialog.show();
@@ -685,13 +713,8 @@ public final class MainActivity extends Activity {
                     .setPositiveButton("Chiudi", null)
                     .setNeutralButton("Copia", null).create();
             dialog.setOnShowListener(shown -> dialog.getButton(AlertDialog.BUTTON_NEUTRAL)
-                    .setOnClickListener(view -> {
-                        try {
-                            ClipboardManager clipboard = getSystemService(ClipboardManager.class);
-                            if (clipboard == null) return;
-                            clipboard.setPrimaryClip(ClipData.newPlainText("MCP Android", message));
-                        } catch (RuntimeException ignored) { }
-                    }));
+                    .setOnClickListener(view -> copyWithAutoClear("MCP Android",
+                            message == null ? "" : message)));
             dialog.show();
         } catch (RuntimeException ignored) { }
     }
@@ -766,7 +789,9 @@ public final class MainActivity extends Activity {
         if (DevicePinStore.isLockedOut(this)) {
             replace(pinBadge, "Bloccato dopo troppi errori: reinserisci il PIN." + suffix);
         } else if (DevicePinStore.hasPin(this)) {
-            replace(pinBadge, "PIN impostato." + suffix);
+            replace(pinBadge, DeviceUnlock.isRpcUnlockAllowed(this)
+                    ? "PIN impostato, sblocco da agente attivo." + suffix
+                    : "PIN impostato, sblocco da agente spento (spunta sopra per attivarlo)." + suffix);
         } else {
             replace(pinBadge, "Nessun PIN: lo sblocco da agente è disattivato." + suffix);
         }

@@ -302,8 +302,20 @@ public final class UpdateManager {
                 throw new IOException("SHA-256 non valido");
             }
             verifyApkIdentity(activity, partial, release);
-            if (ready.exists() && !ready.delete()) throw new IOException("Old update locked");
-            if (!partial.renameTo(ready)) throw new IOException("Impossibile finalizzare APK");
+            // Atomic publish: stage the old APK aside, move the new one in, and
+            // delete the old one only after the rename succeeded (rollback on failure).
+            File backup = new File(directory, release.apkName + ".old");
+            if (backup.exists() && !backup.delete()) throw new IOException("Old update locked");
+            boolean movedOld = false;
+            if (ready.exists()) {
+                if (!ready.renameTo(backup)) throw new IOException("Old update locked");
+                movedOld = true;
+            }
+            if (!partial.renameTo(ready)) {
+                if (movedOld) backup.renameTo(ready);
+                throw new IOException("Impossibile finalizzare APK");
+            }
+            backup.delete();
             completed = true;
             return ready;
         } finally {

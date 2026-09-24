@@ -34,6 +34,10 @@ public final class CapabilityRouter {
     private static final Pattern PRIVATE_KEY_BLOCK =
             Pattern.compile("-----BEGIN [A-Z ]*PRIVATE KEY-----[\\s\\S]*?-----END [A-Z ]*PRIVATE KEY-----");
     private static final Set<String> LOG_LEVELS = Set.of("V", "D", "I", "W", "E", "F");
+    // INVARIANT (JVM-tested in CapabilityRouterTest): privileged ops validate the
+    // package with SecurityValidators.isValidPackageName and the log tag with
+    // LOGCAT_TAG. Keep both checks; never shell-quote raw input.
+    static final Pattern LOGCAT_TAG = Pattern.compile("^[A-Za-z0-9_.:-]{1,80}$");
 
     private CapabilityRouter() { }
 
@@ -226,7 +230,7 @@ public final class CapabilityRouter {
         if (!packageName.isEmpty() && !SecurityValidators.isValidPackageName(packageName)) {
             throw new ApiException("INVALID_ARGUMENT", "Invalid logcat package");
         }
-        if (!tag.isEmpty() && !tag.matches("^[A-Za-z0-9_.:-]{1,80}$")) {
+        if (!tag.isEmpty() && !LOGCAT_TAG.matcher(tag).matches()) {
             throw new ApiException("INVALID_ARGUMENT", "Invalid logcat tag");
         }
         if (!LOG_LEVELS.contains(level) || lines < 1 || lines > 500

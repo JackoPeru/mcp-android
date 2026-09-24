@@ -2,20 +2,12 @@ import dgram from 'node:dgram';
 import os from 'node:os';
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { isIP } from 'node:net';
-import { isRfc1918, validateLanOrigin } from './transport.js';
+import { intToIp, ipToInt, isRfc1918, validateLanOrigin } from './transport.js';
 
 const PROTOCOL = 'mcp-android-discovery';
 const VERSION = 1;
 const RPC_PORT = 8765;
 const DISCOVERY_PORT = 8766;
-
-function ipToInt(ip) {
-  return ip.split('.').reduce((value, part) => ((value << 8) | Number(part)) >>> 0, 0) >>> 0;
-}
-
-function intToIp(value) {
-  return `${value >>> 24 & 255}.${value >>> 16 & 255}.${value >>> 8 & 255}.${value & 255}`;
-}
 
 function defaultTargets() {
   const targets = [];

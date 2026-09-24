@@ -25,6 +25,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Require main branch and unused release tag
         env:
@@ -129,3 +130,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$RELEASE_TAG" "$APK" "$APK.sha256" --title "MCP Android $RELEASE_TAG" --generate-notes --target "$GITHUB_SHA"
+
+      - name: Remove restored signing key
+        if: always()
+        run: rm -f "$HOME/.android/debug.keystore"

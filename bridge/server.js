@@ -4,10 +4,22 @@ import { z } from 'zod';
 import { pathToFileURL } from 'node:url';
 import { AndroidClient, readConfig } from './client.js';
 
-export const MCP_VERSION = '0.8.19';
+export const MCP_VERSION = '0.8.20';
 
 const FILE_WRITE_MAX_BYTES = 32 * 1024;
 const FILE_WRITE_MAX_BASE64_CHARS = Math.ceil(FILE_WRITE_MAX_BYTES / 3) * 4;
+// Screenshots arrive as base64 PNGs: length-guard the string, decode once in
+// try/catch, then verify the PNG magic. No base64 regex: Buffer.from never
+// throws on alphabet issues (it skips unknown chars), the magic check rejects
+// anything that is not a PNG.
+const PNG_MAGIC = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+const SCREENSHOT_MAX_CHARS = 8 * 1024 * 1024;
+export function isValidPng(data) {
+  if (typeof data !== 'string' || data.length > SCREENSHOT_MAX_CHARS) return false;
+  let buf;
+  try { buf = Buffer.from(data, 'base64'); } catch { return false; }
+  return buf.subarray(0, 8).equals(PNG_MAGIC);
+}
 // Allowlist mirrors AndroidSystemTools: http/https browsing, geo maps, tel dialer
 // (ACTION_DIAL, never ACTION_CALL), mailto and sms/smsto. Everything else —
 // file://, content://, intent://, javascript:, custom schemes — is rejected here
@@ -201,9 +213,7 @@ export function createMcpServer(client) {
       try {
         const result = await client.call(method, schema.parse(args));
         if (method === 'screenshot') {
-          if (!result || result.mimeType !== 'image/png' || typeof result.data !== 'string' ||
-              result.data.length > 8 * 1024 * 1024 || !/^[A-Za-z0-9+/]*={0,2}$/.test(result.data) ||
-              !Buffer.from(result.data, 'base64').subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) {
+          if (!result || result.mimeType !== 'image/png' || !isValidPng(result.data)) {
             throw new Error('Invalid Android screenshot');
           }
           const content = [{ type: 'image', data: result.data, mimeType: result.mimeType }];
@@ -218,8 +228,7 @@ export function createMcpServer(client) {
             result?.screenshot?.mimeType === 'image/png' &&
             typeof result.screenshot.data === 'string') {
           const screenshot = result.screenshot;
-          if (screenshot.data.length > 8 * 1024 * 1024 || !/^[A-Za-z0-9+/]*={0,2}$/.test(screenshot.data) ||
-              !Buffer.from(screenshot.data, 'base64').subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) {
+          if (!isValidPng(screenshot.data)) {
             throw new Error('Invalid Android composite screenshot');
           }
           const textResult = { ...result };

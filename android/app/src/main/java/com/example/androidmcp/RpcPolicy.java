@@ -4,7 +4,8 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
 
-/** Concurrency policy for RPC methods. Keeps long waits/shells from blocking UI gestures. */
+/** Concurrency policy for RPC methods. Keeps long waits/shells from blocking UI gestures.
+ * Phone-side source of truth for lock domains/veil; bridge/server.js only describes methods. */
 public final class RpcPolicy {
     public enum LockDomain { NONE, UI, FILE, SHELL }
 

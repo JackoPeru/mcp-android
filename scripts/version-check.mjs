@@ -33,8 +33,18 @@ if (!buildScript.includes('mcp-android-$version-debug.apk')) {
 
 const toolDefinitions = bridge.match(/^\s*\['[a-z_]+', '/gm) ?? [];
 const toolCount = toolDefinitions.length + 1; // +1 for android_batch, registered separately
-if (toolCount !== 67) {
-  fail(`MCP tool count drift: found ${toolCount}, expected 67 (update tests + docs)`);
+// Single source of truth is bridge/server.js definitions: tests must agree
+// with it instead of version-check pinning its own hardcoded expectation.
+const testSources = ['../tests/mcp.test.js', '../tests/transport.test.js']
+  .map(relative => fs.readFileSync(new URL(relative, import.meta.url), 'utf8')).join('\n');
+const expectedCounts = new Set([...testSources.matchAll(/tools\.length,\s*(\d+)/g)].map(match => Number(match[1])));
+if (toolCount < 1) {
+  fail(`MCP tool count drift: found ${toolCount} (update tests + docs)`);
+}
+for (const expected of expectedCounts) {
+  if (expected !== toolCount) {
+    fail(`MCP tool count drift: server has ${toolCount}, tests expect ${expected} (update tests + docs)`);
+  }
 }
 
 if (releaseWorkflow.includes('--clobber') || releaseWorkflow.includes('gh release upload')) {

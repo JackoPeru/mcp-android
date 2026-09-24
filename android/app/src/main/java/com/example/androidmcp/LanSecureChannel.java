@@ -56,8 +56,15 @@ public final class LanSecureChannel {
     }
 
     public static JSONObject decryptRequest(String token, String session, JSONObject envelope, ReplayGuard replayGuard) {
+        // Pre-check nonce format + replay BEFORE the costly decrypt, so a replayed
+        // request is rejected without touching AES-GCM. accept() after success
+        // records it; failed decrypts never pollute the seen set.
+        String nonce = envelope == null ? "" : envelope.optString("nonce", "");
+        if (replayGuard != null && replayGuard.alreadySeen(nonce)) {
+            throw new IllegalArgumentException("LAN request replay rejected");
+        }
         JSONObject result = decrypt(token, session, "request", envelope);
-        if (replayGuard != null && !replayGuard.accept(envelope.optString("nonce", ""))) {
+        if (replayGuard != null && !replayGuard.accept(nonce)) {
             throw new IllegalArgumentException("LAN request replay rejected");
         }
         return result;
@@ -246,6 +253,12 @@ public final class LanSecureChannel {
         ReplayGuard(int maxNonces) {
             if (maxNonces < 1) throw new IllegalArgumentException("Invalid replay capacity");
             this.maxNonces = maxNonces;
+        }
+
+        /** Format + replay pre-check without recording: decrypt first, {@link #accept} after. */
+        public synchronized boolean alreadySeen(String nonce) {
+            validateNonce(nonce);
+            return seen.contains(nonce);
         }
 
         public synchronized boolean accept(String nonce) {

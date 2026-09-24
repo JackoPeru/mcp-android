@@ -36,6 +36,11 @@ public final class AllFilesStore {
     private static final int MAX_SEARCH_SCAN = 10_000;
 
     private final File base;
+    // 2s sorted-listing snapshot: sorting every page of a big directory is
+    // O(n log n) per RPC; offset==0 always re-sorts, deeper pages reuse it.
+    private volatile File[] sortedCache;
+    private volatile String sortedCacheDir = "";
+    private volatile long sortedCacheAt;
 
     public AllFilesStore(File baseDir) throws ApiException {
         if (baseDir == null) throw new ApiException("NOT_FOUND", "Shared storage unavailable");
@@ -64,7 +69,18 @@ public final class AllFilesStore {
         if (kids.length > MAX_DIR_ENTRIES) {
             throw new ApiException("DIRECTORY_TOO_LARGE", "Directory traversal limit reached");
         }
-        Arrays.sort(kids, Comparator.comparing((File file) -> file.getName().toLowerCase(Locale.ROOT)));
+        // Sort only for the first page or when the 2s snapshot is stale/for another dir.
+        long nowMs = System.currentTimeMillis();
+        File[] cached = sortedCache;
+        if (offset != 0 && cached != null && directory.getPath().equals(sortedCacheDir)
+                && nowMs - sortedCacheAt < 2_000) {
+            kids = cached;
+        } else {
+            Arrays.sort(kids, Comparator.comparing((File file) -> file.getName().toLowerCase(Locale.ROOT)));
+            sortedCache = kids;
+            sortedCacheDir = directory.getPath();
+            sortedCacheAt = nowMs;
+        }
         JSONArray entries = new JSONArray();
         boolean hasMore = false;
         long index = 0;
@@ -173,7 +189,7 @@ public final class AllFilesStore {
                     break;
                 }
                 String childPath = parent.path.isEmpty() ? kid.getName() : parent.path + "/" + kid.getName();
-                if (needle.isEmpty() || kid.getName().toLowerCase(Locale.ROOT).contains(needle)) {
+                if (SecurityValidators.containsIgnoreCase(kid.getName(), needle)) {
                     JSONObject entry = toJson(kid);
                     try { entry.put("path", childPath); }
                     catch (JSONException e) { throw new ApiException("INTERNAL", "Unable to encode search"); }
@@ -218,9 +234,21 @@ public final class AllFilesStore {
             throw new ApiException("NOT_FOUND", "Parent directory not found");
         }
         try (RandomAccessFile output = new RandomAccessFile(file, "rw")) {
+            // TOCTOU re-check: resolve() ran before open, so re-canonicalize and
+            // re-gate after open in case the path was swapped meanwhile.
+            File recanonical = file.getCanonicalFile();
+            if (!isInsideBase(recanonical)) {
+                throw new ApiException("INVALID_ARGUMENT", "Path escapes shared storage");
+            }
+            File reparent = recanonical.getParentFile();
+            if (reparent == null || !reparent.isDirectory()) {
+                throw new ApiException("NOT_FOUND", "Parent directory not found");
+            }
             if (truncate) output.setLength(0);
             output.seek(offset);
             output.write(data);
+        } catch (ApiException e) {
+            throw e;
         } catch (IOException e) {
             throw new ApiException("WRITE_FAILED", "File write failed");
         }

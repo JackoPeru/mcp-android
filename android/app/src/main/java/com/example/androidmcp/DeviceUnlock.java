@@ -25,12 +25,32 @@ public final class DeviceUnlock {
     private static final long POLL_MS = 250;
     private static final long VERIFY_MS = 3_000;
 
+    /**
+     * Separate opt-in for unlock via RPC, default off. Saving a PIN alone does
+     * not enable remote unlock: the in-app UI must call
+     * {@link #setRpcUnlockAllowed}(true) first, since anyone holding the MCP
+     * token could otherwise request one attempt per call.
+     */
+    private static final String KEY_RPC_UNLOCK = "rpc_unlock_allowed";
+    private static volatile boolean rpcUnlockAllowed = false;
+
+    public static void setRpcUnlockAllowed(boolean allowed) { rpcUnlockAllowed = allowed; }
+    public static boolean isRpcUnlockAllowed() { return rpcUnlockAllowed; }
+    public static void setRpcUnlockAllowed(Context ctx, boolean allowed) {
+        PrefsFlags.prefs(ctx).edit().putBoolean(KEY_RPC_UNLOCK, allowed).apply();
+        rpcUnlockAllowed = allowed;
+    }
+    public static boolean isRpcUnlockAllowed(Context ctx) {
+        return rpcUnlockAllowed || PrefsFlags.prefs(ctx).getBoolean(KEY_RPC_UNLOCK, false);
+    }
+
     private DeviceUnlock() { }
 
     public static JSONObject unlock(Context context, McpAccessibilityService service) throws ApiException {
         Context app = context.getApplicationContext();
         KeyguardManager keyguard = (KeyguardManager) app.getSystemService(Context.KEYGUARD_SERVICE);
         if (keyguard == null) throw new ApiException("UNLOCK_FAILED", "Keyguard status unavailable");
+        if (!isRpcUnlockAllowed(app)) throw new ApiException("UNLOCK_DISABLED", "Enable device unlock in-app first");
         if (!keyguard.isKeyguardLocked() && !keyguard.isDeviceLocked()) return done(true, "none");
         if (!DevicePinStore.hasPin(app)) {
             throw new ApiException("PIN_NOT_SET", "Store a device PIN in-app first");
@@ -74,8 +94,10 @@ public final class DeviceUnlock {
                 DevicePinStore.clearFailures(app);
                 return done(true, secure ? "pin" : "swipe");
             }
-            DevicePinStore.noteFailure(app);
-            throw new ApiException("WRONG_PIN", "Device still locked after one attempt");
+            // A verify timeout and a wrong PIN look identical here (still locked).
+            // Report a neutral UNLOCK_TIMEOUT without counting a PIN failure, so a
+            // slow keyguard cannot trigger WRONG_PIN lockout.
+            throw new ApiException("UNLOCK_TIMEOUT", "Device still locked after one attempt");
         } finally {
             if (wake != null && wake.isHeld()) {
                 try { wake.release(); } catch (RuntimeException ignored) { }

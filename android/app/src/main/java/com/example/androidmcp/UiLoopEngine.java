@@ -10,7 +10,8 @@ import java.util.concurrent.TimeUnit;
 /** Synchronization and bounded semantic navigation for agent-driven UI loops. */
 public final class UiLoopEngine {
     private static final int DEFAULT_CONTEXT_NODES = 250;
-    private static final long POLL_MS = 250;
+    private static final long POLL_MIN_MS = 100;
+    private static final long POLL_MAX_MS = 500;
 
     private final McpAccessibilityService service;
     private final ScreenSnapshotStore snapshots;
@@ -43,6 +44,7 @@ public final class UiLoopEngine {
         long deadline = started + TimeUnit.MILLISECONDS.toNanos(timeoutMs);
         String previous = null;
         ScreenSnapshotStore.Snapshot current = null;
+        int attempt = 0;
         for (;;) {
             RequestScope.checkCurrent();
             current = capture();
@@ -52,7 +54,7 @@ public final class UiLoopEngine {
             }
             previous = current.uiHash;
             if (System.nanoTime() >= deadline) throw new ApiException("WAIT_TIMEOUT", "UI did not become idle");
-            sleep(deadline);
+            sleep(deadline, attempt++);
         }
     }
 
@@ -69,13 +71,14 @@ public final class UiLoopEngine {
         if (baseHash.isEmpty()) throw new ApiException("INVALID_ARGUMENT", "snapshotId or uiHash is required");
         long started = System.nanoTime();
         long deadline = started + TimeUnit.MILLISECONDS.toNanos(timeoutMs);
+        int attempt = 0;
         for (;;) {
             RequestScope.checkCurrent();
             ScreenSnapshotStore.Snapshot current = base == null
                     ? capture() : capture(base.includeInvisible, base.maxNodes);
             if (!baseHash.equals(current.uiHash)) return waitResult("changed", started, current);
             if (System.nanoTime() >= deadline) throw new ApiException("WAIT_TIMEOUT", "UI did not change");
-            sleep(deadline);
+            sleep(deadline, attempt++);
         }
     }
 
@@ -83,6 +86,7 @@ public final class UiLoopEngine {
         validateWait(timeoutMs);
         long started = System.nanoTime();
         long deadline = started + TimeUnit.MILLISECONDS.toNanos(timeoutMs);
+        int attempt = 0;
         for (;;) {
             RequestScope.checkCurrent();
             ScreenSnapshotStore.Snapshot current = capture();
@@ -92,7 +96,7 @@ public final class UiLoopEngine {
                     && (windowClass == null || windowClass.isEmpty() || windowClass.equals(currentWindow));
             if (matches) return waitResult("activity", started, current);
             if (System.nanoTime() >= deadline) throw new ApiException("WAIT_TIMEOUT", "Activity condition not reached");
-            sleep(deadline);
+            sleep(deadline, attempt++);
         }
     }
 
@@ -136,12 +140,13 @@ public final class UiLoopEngine {
             throws ApiException {
         long localDeadline = Math.min(outerDeadline,
                 System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(1_500));
+        int attempt = 0;
         for (;;) {
             RequestScope.checkCurrent();
             ScreenSnapshotStore.Snapshot current = capture();
             if (!baseHash.equals(current.uiHash)) return current;
             if (System.nanoTime() >= localDeadline) return null;
-            sleep(localDeadline);
+            sleep(localDeadline, attempt++);
         }
     }
 
@@ -185,14 +190,21 @@ public final class UiLoopEngine {
         return TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
     }
 
-    private static void sleep(long deadline) throws ApiException {
+    private static void sleep(long deadline, int attempt) throws ApiException {
         long remaining = TimeUnit.NANOSECONDS.toMillis(Math.max(0, deadline - System.nanoTime()));
         if (remaining <= 0) return;
-        try {
-            Thread.sleep(Math.min(POLL_MS, Math.max(1, remaining)));
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new ApiException("TIMEOUT", "UI synchronization interrupted");
+        // Backoff 100 -> 500ms. Wait on the EventJournal monitor so a fresh event
+        // wakes the poll early (notifyAll in add()); the same timed wait is the
+        // fallback when no event arrives.
+        long backoff = attempt >= 3 ? POLL_MAX_MS : POLL_MIN_MS << Math.min(attempt, 2);
+        long waitMs = Math.min(backoff, Math.max(1, remaining));
+        synchronized (EventJournal.class) {
+            try {
+                EventJournal.class.wait(waitMs);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new ApiException("TIMEOUT", "UI synchronization interrupted");
+            }
         }
     }
 }

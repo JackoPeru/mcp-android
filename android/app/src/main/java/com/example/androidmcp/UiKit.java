@@ -14,7 +14,8 @@ import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
-/** Small native view vocabulary shared by the three screens. No animation or background work. */
+/** Small native view vocabulary shared by the three screens. No animation or background work.
+ * Pure view code; no bridge logic duplicated. */
 final class UiKit {
     static final int BG = 0xff0b1217, CARD = 0xff152128, RAISED = 0xff1d2c34;
     static final int TEXT = 0xffedf5f5, MUTED = 0xffa2b4bd, ACCENT = 0xff64dfc4;

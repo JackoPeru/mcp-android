@@ -32,7 +32,7 @@ import android.widget.Button;
  */
 @SuppressLint("StaticFieldLeak")
 public final class SessionVeil {
-    private static final long FRAME_MS = 50;
+    private static final long FRAME_MS = 200;
     private static final int BASE_TINT = 0x143AA8C8;
     /** Celestine edge glows sampled from the reference takeover effect. */
     private static final int[] GLOW_COLORS = {0x4DB8D8, 0x6FE3F0, 0x2E7FD8, 0x4DB8D8};

@@ -39,6 +39,11 @@ public final class SafFileStore {
         this.roots = roots;
     }
 
+    /**
+     * Paged listing. Offset is an O(n) cursor skip: keep offset &lt;= 1000 and page
+     * with limit &lt;= 200. The scan stops as soon as the page is full and never
+     * walks past offset + limit.
+     */
     public JSONObject list(String rootId, String path, long offset, int limit) throws ApiException {
         requirePath(path);
         if (!SecurityValidators.isValidPage(offset, limit)) {
@@ -198,7 +203,7 @@ public final class SafFileStore {
                     }
                     DocumentInfo child = readInfo(cursor, parent.info.uri, parent.info.treeUri);
                     String childPath = parent.path.isEmpty() ? child.name : parent.path + "/" + child.name;
-                    if (needle.isEmpty() || child.name.toLowerCase(Locale.ROOT).contains(needle)) {
+                    if (SecurityValidators.containsIgnoreCase(child.name, needle)) {
                         JSONObject entry = toJson(child);
                         try { entry.put("path", childPath); }
                         catch (JSONException e) { throw new ApiException("INTERNAL", "Unable to encode search"); }

@@ -2,7 +2,6 @@ package com.example.androidmcp;
 
 import android.annotation.SuppressLint;
 import android.content.Context;
-import android.content.SharedPreferences;
 
 /**
  * What an agent may do while the device is locked.
@@ -16,14 +15,13 @@ import android.content.SharedPreferences;
  * screen regardless of this flag.
  */
 public final class LockedAccess {
-    private static final String PREFS = "android_private_mcp";
     private static final String KEY_FULL = "full_locked_access";
 
     private LockedAccess() { }
 
     /** Default true: preserves the historical behavior. */
     public static synchronized boolean isFullAccess(Context context) {
-        return prefs(context).getBoolean(KEY_FULL, true);
+        return PrefsFlags.prefs(context).getBoolean(KEY_FULL, true);
     }
 
     /**
@@ -33,7 +31,7 @@ public final class LockedAccess {
      */
     @SuppressLint("ApplySharedPref")
     public static synchronized boolean setFullAccess(Context context, boolean full) {
-        return prefs(context).edit().putBoolean(KEY_FULL, full).commit();
+        return PrefsFlags.prefs(context).edit().putBoolean(KEY_FULL, full).commit();
     }
 
     /**
@@ -48,9 +46,5 @@ public final class LockedAccess {
                 && (method.equals("notifications")
                     || method.equals("unlock_device")
                     || method.equals("ui_done")));
-    }
-
-    private static SharedPreferences prefs(Context context) {
-        return context.getApplicationContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE);
     }
 }

@@ -2,6 +2,9 @@ package com.example.androidmcp;
 
 import java.util.Objects;
 
+// Kept as POJO (not a record): callers in TransportManager/McpHttpServer read
+// public fields (endpoint.address); a record's endpoint.address() accessors would
+// require touching those files, owned by another agent.
 public final class TransportEndpoint {
     public final String transport;
     public final String address;
@@ -31,7 +34,7 @@ public final class TransportEndpoint {
         if (!(other instanceof TransportEndpoint)) return false;
         TransportEndpoint that = (TransportEndpoint) other;
         return port == that.port && prefixLength == that.prefixLength
-                && transport.equals(that.transport) && address.equals(that.address);
+                && Objects.equals(transport, that.transport) && Objects.equals(address, that.address);
     }
 
     @Override public int hashCode() {

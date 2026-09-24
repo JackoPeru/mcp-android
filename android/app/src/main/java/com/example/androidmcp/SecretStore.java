@@ -16,6 +16,12 @@ import java.security.SecureRandom;
  * FLAG_SECURE token dialog, stop-on-show, and manual rotation revoking old sessions.
  * A future step is EncryptedSharedPreferences/Keystore; it needs a new dependency
  * and migration test on real devices, so it is intentionally not done blind here.
+ *
+ * <p>Rotation (dependency-free): {@link #rotate} mints a fresh 256-bit hex token
+ * and revokes the old one immediately. The UI rotates on every token reveal and
+ * on demand; treat any export of this file as a compromise and rotate. Backup
+ * stays excluded via {@code allowBackup=false} + dataExtractionRules, so the
+ * token never leaves the device through backup or cloud transfer.
  */
 public final class SecretStore {
     private static final String PREFS = "android_private_mcp";

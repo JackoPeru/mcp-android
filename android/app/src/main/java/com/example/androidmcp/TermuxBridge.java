@@ -11,10 +11,10 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.util.Locale;
+import java.security.SecureRandom;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /** Optional shell backend through Termux's documented RUN_COMMAND Intent API. */
 public final class TermuxBridge {
@@ -29,7 +29,7 @@ public final class TermuxBridge {
     private static final String EXTRA_PENDING = "com.termux.RUN_COMMAND_PENDING_INTENT";
     private static final String BASH = "$PREFIX/bin/bash";
     private static final String HOME = "~/";
-    private static final AtomicInteger NEXT = new AtomicInteger(1000);
+    private static final SecureRandom RANDOM = new SecureRandom();
     private static final ConcurrentHashMap<Integer, CompletableFuture<Result>> WAITING = new ConcurrentHashMap<>();
 
     private TermuxBridge() { }
@@ -67,7 +67,13 @@ public final class TermuxBridge {
         if (context.checkSelfPermission("com.termux.permission.RUN_COMMAND") != PackageManager.PERMISSION_GRANTED)
             throw new ApiException("TERMUX_PERMISSION_REQUIRED", "Grant Run commands in Termux environment");
 
-        int id = NEXT.updateAndGet(value -> value == Integer.MAX_VALUE ? 1000 : value + 1);
+        // Unpredictable SecureRandom requestId (>= 1000, never the -1 sentinel):
+        // a sequential id would let another app guess a future PendingIntent
+        // requestCode and pre-register WAITING entries.
+        int id;
+        do {
+            id = RANDOM.nextInt(Integer.MAX_VALUE - 1000) + 1000;
+        } while (WAITING.containsKey(id));
         CompletableFuture<Result> future = new CompletableFuture<>();
         WAITING.put(id, future);
         Intent callback = new Intent(context, TermuxResultService.class).putExtra("requestId", id);
@@ -75,7 +81,7 @@ public final class TermuxBridge {
         // FLAG_MUTABLE is required by Termux's RUN_COMMAND contract (the result
         // Intent is filled in by Termux/RunCommandService). The Intent is
         // explicit to exported=false TermuxResultService, one-shot, and keyed
-        // by a random requestId; WAITING entries are always removed in finally
+        // by a SecureRandom requestId; WAITING entries are always removed in finally
         // (including timeout) so a late/duplicate result cannot complete a
         // future command. A forged result can at most falsify shell output
         // that is already treated as untrusted data.

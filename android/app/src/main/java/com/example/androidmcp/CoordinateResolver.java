@@ -1,6 +1,7 @@
 package com.example.androidmcp;
 
-/** Converts either absolute pixels or 0..1000 normalized coordinates into display pixels. */
+/** Converts either absolute pixels or 0..1000 normalized coordinates into display pixels.
+ * Normalized range mirrors bridge/server.js normalizedCoordinate (source of truth). */
 public final class CoordinateResolver {
     private CoordinateResolver() { }
 

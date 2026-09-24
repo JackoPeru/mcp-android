@@ -58,6 +58,14 @@ public final class SecurityValidatorsTest {
     }
 
     @Test
+    public void containsIgnoreCaseMatchesWithoutAllocatingLowerCopy() {
+        assertTrue(SecurityValidators.containsIgnoreCase("Notes.TXT", "notes"));
+        assertTrue(SecurityValidators.containsIgnoreCase("abc", ""));
+        assertFalse(SecurityValidators.containsIgnoreCase("abc", "d"));
+        assertFalse(SecurityValidators.containsIgnoreCase(null, "a"));
+    }
+
+    @Test
     public void onlyTailscaleCarrierIpv4IsBindable() {
         assertTrue(SecurityValidators.isTailscaleIpv4("100.64.0.1"));
         assertTrue(SecurityValidators.isTailscaleIpv4("100.127.255.254"));

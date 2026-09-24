@@ -1,3 +1,4 @@
+param([switch]$SkipTests)
 $ErrorActionPreference = 'Stop'
 
 $package = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot 'package.json') | ConvertFrom-Json
@@ -47,7 +48,7 @@ try {
     if ($currentSemVer -le $previousSemVer) {
         throw "La versione semantica release deve aumentare rispetto a $previousTag."
     }
-    $currentGradle = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot 'android\app\build.gradle')
+    $currentGradle = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot 'android' 'app' 'build.gradle')
     $previousGradle = ((& git show "${previousTag}:android/app/build.gradle") -join "`n")
     if ($LASTEXITCODE -ne 0) { throw 'Impossibile leggere il versionCode della release precedente.' }
     $currentVersionCode = Get-AndroidVersionCode $currentGradle
@@ -56,25 +57,28 @@ try {
         throw "versionCode Android deve aumentare rispetto a $previousTag ($previousVersionCode)."
     }
 
-    & npm.cmd run check
+    $npm = (Get-Command npm -ErrorAction Stop).Source
+    & $npm run check
     if ($LASTEXITCODE -ne 0) { throw 'Verifiche Node fallite.' }
 
-    & .\build-android.ps1
+    if ($SkipTests) { & (Join-Path $PSScriptRoot 'build-android.ps1') -SkipTests } else { & (Join-Path $PSScriptRoot 'build-android.ps1') }
     if ($LASTEXITCODE -ne 0) { throw 'Build Android fallita.' }
 
-    $apk = Join-Path $PSScriptRoot "dist\mcp-android-$version-debug.apk"
+    $apk = Join-Path $PSScriptRoot 'dist' "mcp-android-$version-debug.apk"
     $hash = "$apk.sha256"
     if (-not (Test-Path -LiteralPath $apk) -or -not (Test-Path -LiteralPath $hash)) {
         throw 'Asset release mancanti.'
     }
 
-    $java = Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot '.tools\jdk17') -Filter java.exe -File -Recurse -ErrorAction SilentlyContinue |
+    $java = Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot '.tools' 'jdk17') -Filter java.exe -File -Recurse -ErrorAction SilentlyContinue |
         Select-Object -First 1
     if ($java) { $env:JAVA_HOME = Split-Path (Split-Path $java.FullName -Parent) -Parent }
-    $buildTools = Get-ChildItem -LiteralPath (Join-Path $env:LOCALAPPDATA 'Android\Sdk\build-tools') -Directory |
+    $buildTools = Get-ChildItem -LiteralPath (Join-Path $env:LOCALAPPDATA 'Android' 'Sdk' 'build-tools') -Directory |
         Sort-Object { [version]$_.Name } -Descending | Select-Object -First 1
     if (-not $buildTools) { throw 'Android build-tools non trovati.' }
-    $signerOutput = & (Join-Path $buildTools.FullName 'apksigner.bat') verify --verbose --print-certs $apk 2>&1
+    $apksigner = (Get-Command apksigner -ErrorAction SilentlyContinue)?.Source
+    if (-not $apksigner) { $apksigner = Join-Path $buildTools.FullName 'apksigner.bat' }
+    $signerOutput = & $apksigner verify --verbose --print-certs $apk 2>&1
     if ($LASTEXITCODE -ne 0) { throw 'Firma APK non valida.' }
     $expectedSignerSha256 = '7be7c380f31c81c050a86ea8cefd4ec3bd41972ddd864a8edb97b1e20c84823f'
     $signerLine = $signerOutput | Where-Object { $_ -match '^Signer #1 certificate SHA-256 digest:' } | Select-Object -First 1
@@ -89,14 +93,18 @@ try {
     gh auth status | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'GitHub CLI non autenticata.' }
 
+    $repo = $null
+    try { $repo = ((& gh repo view --json nameWithOwner 2>$null) | ConvertFrom-Json).nameWithOwner } catch { $repo = $null }
+    if (-not $repo) { $repo = 'JackoPeru/mcp-android' }
+
     # Let cmd.exe absorb gh's expected stderr when the release does not exist.
     # With ErrorActionPreference=Stop, invoking gh directly would turn that
     # normal "release not found" probe into a terminating PowerShell error.
-    & cmd.exe /d /c "gh release view $tag --repo JackoPeru/mcp-android >nul 2>nul"
+    & cmd.exe /d /c "gh release view $tag --repo $repo >nul 2>nul"
     if ($LASTEXITCODE -eq 0) {
         throw "La release $tag esiste già ed è immutabile."
     }
-    gh release create $tag $apk $hash --repo JackoPeru/mcp-android --title "MCP Android $tag" --generate-notes --target $head
+    gh release create $tag $apk $hash --repo $repo --title "MCP Android $tag" --generate-notes --target $head
     if ($LASTEXITCODE -ne 0) { throw 'Pubblicazione release fallita.' }
 } finally {
     Remove-Item Env:RELEASE_TAG -ErrorAction SilentlyContinue

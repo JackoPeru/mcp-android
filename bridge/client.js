@@ -96,7 +96,7 @@ export class AndroidClient {
     return this.callBearerOnce(url, method, params, probe, timeoutMs);
   }
 
-  bearerAmbiguousError(probe, message) {
+  ambiguousTransportError(probe, message) {
     // Any HTTP/coding failure after a mutating POST leaves the outcome
     // ambiguous: the phone may have executed the action before the response
     // was lost, truncated or redirected. Never silently continue a batch.
@@ -105,6 +105,28 @@ export class AndroidClient {
     const error = new Error(probe ? `${message} (endpoint unreachable)` : `${message}; operation outcome unknown.`);
     error.kind = probe ? 'unreachable' : 'outcome_unknown';
     return error;
+  }
+
+  bearerAmbiguousError(probe, message) {
+    return this.ambiguousTransportError(probe, message);
+  }
+
+  lanUnauthenticatedResponseError(probe) {
+    return this.ambiguousTransportError(probe, 'Android LAN response authentication failed');
+  }
+
+  mapTransportError(error, probe) {
+    if (error?.name === 'TimeoutError' || error?.name === 'AbortError') {
+      const wrapped = new Error(probe ? 'Android endpoint probe timed out.' : 'Android request timed out; operation outcome unknown. Inspect status before retrying gestures.');
+      wrapped.kind = probe ? 'unreachable' : 'outcome_unknown';
+      return wrapped;
+    }
+    if (error?.message === 'fetch failed') {
+      const wrapped = new Error(probe ? 'Android endpoint unreachable.' : 'Android transport disconnected; operation outcome unknown.');
+      wrapped.kind = probe ? 'unreachable' : 'outcome_unknown';
+      return wrapped;
+    }
+    return null;
   }
 
   async callBearerOnce(url, method, params = {}, probe = false, timeoutMs = this.timeoutMs) {
@@ -136,16 +158,8 @@ export class AndroidClient {
       }
       return this.unwrapPayload(response, payload, probe);
     } catch (error) {
-      if (error.name === 'TimeoutError' || error.name === 'AbortError') {
-        const wrapped = new Error(probe ? 'Android endpoint probe timed out.' : 'Android request timed out; operation outcome unknown. Inspect status before retrying gestures.');
-        wrapped.kind = probe ? 'unreachable' : 'outcome_unknown';
-        throw wrapped;
-      }
-      if (error.message === 'fetch failed') {
-        const wrapped = new Error(probe ? 'Android endpoint unreachable.' : 'Android transport disconnected; operation outcome unknown.');
-        wrapped.kind = probe ? 'unreachable' : 'outcome_unknown';
-        throw wrapped;
-      }
+      const mapped = this.mapTransportError(error, probe);
+      if (mapped) throw mapped;
       throw error;
     }
   }
@@ -196,16 +210,8 @@ export class AndroidClient {
         throw error;
       }
     } catch (error) {
-      if (error.name === 'TimeoutError' || error.name === 'AbortError') {
-        const wrapped = new Error(probe ? 'Android endpoint probe timed out.' : 'Android request timed out; operation outcome unknown. Inspect status before retrying gestures.');
-        wrapped.kind = probe ? 'unreachable' : 'outcome_unknown';
-        throw wrapped;
-      }
-      if (error.message === 'fetch failed') {
-        const wrapped = new Error(probe ? 'Android endpoint unreachable.' : 'Android transport disconnected; operation outcome unknown.');
-        wrapped.kind = probe ? 'unreachable' : 'outcome_unknown';
-        throw wrapped;
-      }
+      const mapped = this.mapTransportError(error, probe);
+      if (mapped) throw mapped;
       throw error;
     }
   }
@@ -267,8 +273,11 @@ export class AndroidClient {
   }
 
   invalidateLanSession(url) {
+    // Only session state is cleared here. The in-flight hello promise is
+    // owned by ensureLanSession, whose finally deletes it under an identity
+    // check (get(url) === promise); deleting it here would kill a concurrent
+    // establish and force a duplicate hello.
     this.lanSessions.delete(url);
-    this.lanSessionPromises.delete(url);
     this.lanSessionEstablishedAt.delete(url);
   }
 
@@ -323,13 +332,5 @@ export class AndroidClient {
 
   lanWireResponseLimit() {
     return Math.ceil(this.maxResponseBytes * 4 / 3) + 4096;
-  }
-
-  lanUnauthenticatedResponseError(probe) {
-    const error = new Error(probe
-      ? 'Android LAN response authentication failed.'
-      : 'Android LAN response authentication failed; operation outcome unknown.');
-    error.kind = probe ? 'unreachable' : 'outcome_unknown';
-    return error;
   }
 }

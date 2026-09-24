@@ -3,6 +3,8 @@ package com.example.androidmcp;
 public final class TransportReconciliation {
     private TransportReconciliation() { }
 
+    // Plan keeps 6 booleans: TransportManager.reconcile() (owned by another agent)
+    // reads every field; folding to an enum/diff would require touching that caller.
     public static final class Plan {
         public final boolean startLan;
         public final boolean stopLan;

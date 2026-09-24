@@ -8,10 +8,10 @@ App Android + server MCP per usare il proprio telefono da un agente: loop semant
 - Una rete Wi-Fi locale condivisa **oppure** Tailscale. Tailscale è necessario solo per l'accesso remoto quando telefono e agente non sono sulla stessa LAN.
 - Node.js 22 o successivo sul PC.
 - Installazione manuale dell'APK e concessione iniziale dei permessi sul telefono.
-- Termux >= 0.109 da F-Droid (la versione Play Store è obsoleta) solo se si vuole usare android_shell; il permesso Run commands in Termux environment resta separato e deve essere concesso dall'utente. In Termux serve anche `mkdir -p ~/.termux && echo "allow-external-apps=true" >> ~/.termux/termux.properties && termux-reload-settings`. Su OxygenOS aggressivi, togli MCP Android dall'ottimizzazione batteria se i comandi falliscono all'avvio.
+- Termux >= 0.109 da F-Droid (la versione Play Store è obsoleta) solo se si vuole usare android_shell; il permesso Run commands in Termux environment resta separato e deve essere concesso dall'utente. In Termux serve anche `mkdir -p ~/.termux && grep -q allow-external-apps ~/.termux/termux.properties 2>/dev/null || echo "allow-external-apps=true" >> ~/.termux/termux.properties && termux-reload-settings`. Su OxygenOS aggressivi, togli MCP Android dall'ottimizzazione batteria se i comandi falliscono all'avvio.
 - Shizuku 11+ solo se si vuole usare android_shizuku_shell. Su Android 11+ Shizuku può essere avviato tramite Wireless debugging; se viene avviato come shell il comando gira come UID 2000, se l'utente lo avvia esplicitamente con root gira come UID 0.
 
-La v0.8.19 mantiene i **due trasporti indipendenti** della v0.8.2 e porta l'updater Android allo stesso flusso esplicito usato da HermesHub:
+La v0.8.20 mantiene i **due trasporti indipendenti** della v0.8.2 e porta l'updater Android allo stesso flusso esplicito usato da HermesHub:
 
 - **Controlla → Scarica aggiornamento → Installa aggiornamento**;
 - APK scaricato in `.part`, verificato per dimensione/SHA-256/package/versionCode/firma prima di diventare installabile;
@@ -27,7 +27,7 @@ I listener **TCP RPC** non ascoltano mai su `0.0.0.0` o `::`: vengono legati sol
 
 ## Installazione senza cavo
 
-APK disponibile: **`dist/mcp-android-0.8.19-debug.apk`**, con SHA-256 nel file accanto. È una build debug firmata per installazione personale, non una release Play Store.
+APK disponibile come fonte primaria dalla **GitHub Release v0.8.20** (`mcp-android-0.8.20-debug.apk` con SHA-256 nel `.sha256` accanto). La copia in `dist/` è solo un artefatto locale di build, non la fonte di installazione. È una build debug firmata per installazione personale, non una release Play Store.
 
 1. Trasferisci l'APK al telefono, ad esempio con Tailscale Taildrop o il tuo servizio file, e aprilo dal telefono. Autorizza l'installazione per l'app da cui lo apri.
 2. Apri MCP Android e abilita il servizio Accessibilità nelle impostazioni Android. Per APK installati esternamente, Android può richiedere prima **Consenti impostazioni con restrizioni** nelle informazioni dell'app.
@@ -36,7 +36,7 @@ APK disponibile: **`dist/mcp-android-0.8.19-debug.apk`**, con SHA-256 nel file a
 5. Se vuoi la shell Termux, installa Termux, premi **Abilita shell Termux** e concedi il permesso aggiuntivo Run commands in Termux environment.
 6. Se vuoi la shell Shizuku, avvia Shizuku e premi **Abilita Shizuku**. Il consenso Shizuku è separato da Termux e non abilita alcun fallback automatico.
 7. Avvia il servizio remoto dall'app. Se sei a casa, MCP Android espone automaticamente l'endpoint **LAN** e non richiede Tailscale. Se vuoi anche l'accesso da fuori casa, avvia Tailscale: comparirà un secondo endpoint senza interrompere la LAN.
-8. Sul PC, nella cartella del progetto, esegui `npm.cmd ci --ignore-scripts`.
+8. Sul PC, nella cartella del progetto, esegui `npm ci --ignore-scripts` (da `cmd.exe` usa `npm.cmd ci --ignore-scripts`).
 9. Adatta `mcp-config.example.json`: inserisci il token e, per il fallback remoto, l'IP Tailscale del telefono. In modalità `auto` non serve configurare l'IP Wi-Fi: il bridge prova la LAN tramite discovery locale e usa Tailscale soltanto se la LAN non è raggiungibile.
 
 L'updater interno è stato introdotto con la v0.6.0. Se sul telefono è installata una versione precedente che non contiene l'updater, installa manualmente una volta la release attuale; da quel momento le versioni successive possono essere rilevate dall'app.
@@ -52,6 +52,7 @@ ANDROID_MCP_TOKEN=<64 caratteri hex>
 ANDROID_MCP_TRANSPORT=auto
 ANDROID_MCP_DISCOVERY=true
 ANDROID_MCP_TAILSCALE_URL=http://100.x.y.z:8765
+ANDROID_MCP_LAN_URL=http://192.168.x.y:8765
 ```
 
 `ANDROID_MCP_LAN_URL=http://192.168.x.y:8765` è opzionale e serve solo se vuoi fissare manualmente l'endpoint LAN. La vecchia coppia `ANDROID_MCP_URL=http://100.x.y.z:8765` + token resta compatibile e forza il comportamento Tailscale-only.
@@ -176,7 +177,7 @@ Le operazioni concorrenti sono separate per dominio: filesystem, UI e shell hann
 
 ## Consumo batteria
 
-La v0.8.19 conserva la modalità ultra-low-power della v0.7.2 e il dual transport event-driven:
+La v0.8.20 conserva la modalità ultra-low-power della v0.7.2 e il dual transport event-driven:
 
 - il listener TCP resta bloccato su `accept()` quando non arrivano richieste, quindi non esegue polling; HMAC/AES-GCM vengono calcolati solo quando arriva discovery/traffico RPC;
 - il pool RPC mantiene **0 worker permanenti** a riposo e crea thread solo quando arriva una richiesta;
@@ -200,12 +201,14 @@ Non viene dichiarata una percentuale di batteria/ora senza misura su telefono re
 ## Verifiche ripetibili
 
 ```powershell
-npm.cmd ci --ignore-scripts
-npm.cmd run check
+npm ci --ignore-scripts
+npm run check
 ./build-android.ps1
 ```
 
-I test verificano configurazione privata, bearer Tailscale legacy, timeout/limiti/redirect, HMAC discovery cross-language, source-IP/subnet validation, handshake server-authenticated, vettori AES-256-GCM Node↔Java, chiavi separate per direzione, anti-replay, assenza del bearer/plaintext sul path LAN, `outcome_unknown` su risposta LAN manomessa, callback VPN, flow DSL, snapshot/diff, capability routing, release identity/firma e discovery dei **67 tool MCP** tramite processo stdio. La build Android esegue anche unit test e lint. I test desktop/JVM **non** dimostrano ancora broadcast/routing reale su uno specifico telefono/router né consumo batteria fisico. Risultati finali: `docs/acceptance.md`.
+(da `cmd.exe` usa `npm.cmd` al posto di `npm`).
+
+I test verificano configurazione privata, bearer Tailscale legacy, timeout/limiti/redirect, HMAC discovery cross-language, source-IP/subnet validation, handshake server-authenticated, vettori AES-256-GCM Node↔Java, chiavi separate per direzione, anti-replay, assenza del bearer/plaintext sul path LAN, `outcome_unknown` su risposta LAN manomessa, callback VPN, flow DSL, snapshot/diff, capability routing, release identity/firma e discovery dei **67 tool MCP** tramite processo stdio. La build Android esegue anche unit test e lint. I test desktop/JVM **non** dimostrano ancora broadcast/routing reale su uno specifico telefono/router né consumo batteria fisico. Risultati finali: `docs/acceptance.md` (stato v0.8.20).
 
 Per ricompilare servono JDK 17 o successivo e Android SDK 35. `build-android.ps1` trova SDK e Java locali, incluso l'eventuale JDK portatile ignorato in `.tools/jdk17`, esegue build/test/lint e aggiorna APK e checksum in `dist`. `publish-release.ps1` ripete le verifiche e pubblica la release GitHub dalla macchina locale. Non cambia variabili di sistema né usa ADB. Il progetto include Gradle Wrapper.
 

@@ -7,7 +7,8 @@ import org.json.JSONObject;
 import java.util.ArrayDeque;
 import java.util.concurrent.atomic.AtomicLong;
 
-/** Bounded metadata-only execution trace journal. Never stores action parameters or payload content. */
+/** Bounded metadata-only execution trace journal. Never stores action parameters or payload content.
+ * Phone-side store; no bridge logic duplicated. */
 public final class TraceJournal {
     private static final int MAX_TRACES = 128;
     private static final ArrayDeque<Entry> TRACES = new ArrayDeque<>();

@@ -4,7 +4,10 @@ import android.content.Context;
 
 import java.io.IOException;
 
-/** One authenticated RPC listener bound to one explicit transport endpoint. */
+/** One authenticated RPC listener bound to one explicit transport endpoint.
+ * Thin delegate over McpHttpServer (source of truth for socket/HTTP behavior);
+ * inlining into TransportManager is owned by another agent (that file is out of scope). */
+@Deprecated
 public final class RpcEndpointServer {
     public interface ClientPolicy {
         boolean allow(String remoteIpv4);

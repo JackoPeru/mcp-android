@@ -104,6 +104,20 @@ public final class SecurityValidators {
         return value != null && value.length() <= MAX_PACKAGE_LENGTH && PACKAGE.matcher(value).matches();
     }
 
+    /**
+     * Case-insensitive substring without allocating a lowered copy of {@code haystack}.
+     * {@code needleLower} must already be lower-folded once by the caller.
+     */
+    public static boolean containsIgnoreCase(String haystack, String needleLower) {
+        if (haystack == null || needleLower == null) return false;
+        int need = needleLower.length();
+        if (need == 0) return true;
+        for (int i = 0; i + need <= haystack.length(); i++) {
+            if (haystack.regionMatches(true, i, needleLower, 0, need)) return true;
+        }
+        return false;
+    }
+
     public static boolean isTailscaleIpv4(String value) {
         if (value == null) {
             return false;

@@ -5,7 +5,8 @@ import org.json.JSONObject;
 
 import java.util.Set;
 
-/** Phone-side trust boundary for the bounded UI flow DSL. */
+/** Phone-side trust boundary for the bounded UI flow DSL.
+ * Step types mirror bridge/server.js flowStepTypes (source of truth); semantics unchanged. */
 public final class FlowValidation {
     public static final int MAX_STEPS = 40;
     public static final long MAX_TIMEOUT_MS = 20_000;

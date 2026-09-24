@@ -25,6 +25,7 @@ import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -902,7 +903,7 @@ public final class McpAccessibilityService extends AccessibilityService {
         return result;
     }
 
-    private <T> T onMain(ThrowingCallable<T> callable) throws ApiException {
+    private <T> T onMain(Callable<T> callable) throws ApiException {
         return onMain(callable, false);
     }
 
@@ -911,11 +912,11 @@ public final class McpAccessibilityService extends AccessibilityService {
      * the explicit unlock flow (keyguard digit lookup); every other entry
      * point keeps the default guard.
      */
-    private <T> T onMainKeyguard(ThrowingCallable<T> callable) throws ApiException {
+    private <T> T onMainKeyguard(Callable<T> callable) throws ApiException {
         return onMain(callable, true);
     }
 
-    private <T> T onMain(ThrowingCallable<T> callable, boolean allowLocked) throws ApiException {
+    private <T> T onMain(Callable<T> callable, boolean allowLocked) throws ApiException {
         if (nativeBusy.get()) throw new ApiException("BUSY", "Native operation in flight");
         RequestScope scope = RequestScope.CURRENT.get();
         AtomicReference<ApiException> apiError = new AtomicReference<>();
@@ -966,10 +967,6 @@ public final class McpAccessibilityService extends AccessibilityService {
         }
         String text = value.toString();
         return text.length() <= MAX_NODE_TEXT ? text : text.substring(0, MAX_NODE_TEXT);
-    }
-
-    private interface ThrowingCallable<T> {
-        T call() throws ApiException;
     }
 
     private static final class Counter {

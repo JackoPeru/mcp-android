@@ -1,3 +1,5 @@
+> **Documento storico (redesign v0.8.2/v0.8.3):** conservato come riferimento; lo stato verificato corrente è in `docs/acceptance.md` (v0.8.19).
+
 # Nuova interfaccia MCP Android
 
 Redesign nativo sviluppato su v0.8.2 e integrato nel progetto v0.8.3 insieme al flusso di aggiornamento modificato dall'altro agente. Nessuna nuova dipendenza UI.
@@ -10,7 +12,9 @@ Redesign nativo sviluppato su v0.8.2 e integrato nel progetto v0.8.3 insieme al 
 
 Tema scuro con accenti verde acqua, schede arrotondate, icone vettoriali disegnate con API native, pulsanti con feedback al tocco. Contenuti scorrevoli, larghezza adattiva, navigazione persistente e testi che rispettano la dimensione del carattere di sistema.
 
-Gli stati visualizzati derivano dal servizio e dai permessi Android: una sessione aperta non viene presentata come prova che un agente sia collegato. Mostrare o rigenerare il token ferma il servizio; schermata e dialogo conservano FLAG_SECURE. Il token non viene copiato negli appunti né salvato nello stato della UI.
+Gli stati visualizzati derivano dal servizio e dai permessi Android: una sessione aperta non viene presentata come prova che un agente sia collegato. Mostrare o rigenerare il token ferma il servizio; schermata e dialogo conservano FLAG_SECURE.
+
+> **Errata:** dalla v0.8.4 la schermata token ha il bottone **Copia negli appunti** — la frase precedente che lo escludeva non è più valida.
 
 ## Installazione e verifica
 

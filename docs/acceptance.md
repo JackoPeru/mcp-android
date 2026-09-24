@@ -1,4 +1,9 @@
-# Acceptance v0.8.19
+# Acceptance v0.8.20
+
+## Delta v0.8.20 (24/09/2026)
+
+- Audit completo: dedupliche bridge (isValidPng, mapTransportError, single-flight LAN, base64 strict), util Java condivisi (Hex, PrefsFlags), hardening sicurezza (check workdir Shizuku, replay pre-decrypt, requestId SecureRandom, TOCTOU write, rename APK atomico, clipboard auto-clear 45s, opt-in sblocco da agente con toggle in-app), perf (snapshot no-copy, backoff wait, sort cache, SessionVeil 200ms), docs/CI (limits.md, doctor.mjs, validation.test.js, matrix Node 22/24, job Windows, gradle cache).
+- `unlock_device` ora richiede opt-in esplicito in-app (checkbox "Permetti sblocco da agente"), default spento; verify-timeout lento non causa più lockout (UNLOCK_TIMEOUT neutro).
 
 ## Delta v0.8.19 (17/09/2026)
 
@@ -275,13 +280,13 @@ Questi punti richiedono collaudo end-to-end sul telefono.
 ## APK
 
 - Package: `com.example.androidmcp`.
-- versionCode: **20**.
-- versionName: **0.8.9**.
+- versionCode: **31**.
+- versionName: **0.8.20**.
 - minSdk: **30**.
 - targetSdk: **35**.
-- APK: `dist/mcp-android-0.8.9-debug.apk`.
+- APK: `mcp-android-0.8.20-debug.apk` (fonte primaria: GitHub Release v0.8.20).
 - Dimensione: vedi asset release (verificata via SHA-256 a ogni pubblicazione).
-- SHA-256: `f125c702268c4d529eff3d3d286254514d7070740dbbdbc3f2571fcd0572d175`.
+- SHA-256: vedi `mcp-android-0.8.20-debug.apk.sha256` nella GitHub Release v0.8.20.
 - APK Signature Scheme v2: **valida**.
 - Signer: **1**.
 - Chiave: RSA 2048, Android Debug.
@@ -361,4 +366,4 @@ Misurare separatamente per alcune ore:
 
 ## Stato
 
-Implementazione software/build **completa per v0.8.3**, con secure LAN transport e updater in stile HermesHub. La release è pronta per il collaudo fisico, ma broadcast/routing reale, packet capture su rete fisica, updater su dispositivo reale e consumo batteria non vengono dichiarati verificati finché non vengono provati sul telefono.
+Implementazione software/build **completa per v0.8.20**, con secure LAN transport e updater in stile HermesHub. La release è pronta per il collaudo fisico, ma broadcast/routing reale, packet capture su rete fisica, updater su dispositivo reale e consumo batteria non vengono dichiarati verificati finché non vengono provati sul telefono.

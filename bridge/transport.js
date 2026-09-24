@@ -5,6 +5,15 @@ function ipv4(ip) {
   return ip.split('.').reduce((value, part) => ((value << 8) | Number(part)) >>> 0, 0) >>> 0;
 }
 
+// Single IPv4 conversion helpers shared with discovery.js (subnet math).
+export function ipToInt(ip) {
+  return ipv4(ip);
+}
+
+export function intToIp(value) {
+  return `${value >>> 24 & 255}.${value >>> 16 & 255}.${value >>> 8 & 255}.${value & 255}`;
+}
+
 export function isRfc1918(ip) {
   const value = ipv4(ip);
   return ((value & 0xff000000) >>> 0) === 0x0a000000 ||
@@ -57,6 +66,7 @@ export class TransportResolver {
     this.now = now;
     this.validationTtlMs = validationTtlMs;
     this.lanRetryMs = lanRetryMs;
+    this.resolveLanPromise = null;
   }
 
   async resolve() {
@@ -74,6 +84,19 @@ export class TransportResolver {
   }
 
   async resolveLan() {
+    // Single-flight over discovery+probe: concurrent callers share one
+    // resolution instead of firing parallel UDP discovery and status probes.
+    if (this.resolveLanPromise) return this.resolveLanPromise;
+    const promise = this.resolveLanInner();
+    this.resolveLanPromise = promise;
+    try {
+      return await promise;
+    } finally {
+      if (this.resolveLanPromise === promise) this.resolveLanPromise = null;
+    }
+  }
+
+  async resolveLanInner() {
     const now = this.now();
     if (!this.cachedLanUrl && this.configuredLanUrl && now >= this.lanRetryAfter) {
       this.cachedLanUrl = this.configuredLanUrl;

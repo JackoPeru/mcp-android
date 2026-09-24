@@ -2,7 +2,6 @@ package com.example.androidmcp;
 
 import android.content.Context;
 import android.content.Intent;
-import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.Environment;
 import android.provider.Settings;
@@ -21,19 +20,18 @@ import android.provider.Settings;
  * {@code OPERATION_UNSUPPORTED} beats a cryptic I/O failure.
  */
 public final class AllFilesAccess {
-    private static final String PREFS = "android_private_mcp";
     private static final String KEY_ENABLED = "all_files_enabled";
 
     private AllFilesAccess() { }
 
     public static synchronized boolean isEnabled(Context context) {
-        return prefs(context).getBoolean(KEY_ENABLED, false);
+        return PrefsFlags.prefs(context).getBoolean(KEY_ENABLED, false);
     }
 
     public static synchronized void setEnabled(Context context, boolean enabled) {
         // apply(), not commit(): if persistence fails the flag silently stays
         // off, which is the fail-closed direction.
-        prefs(context).edit().putBoolean(KEY_ENABLED, enabled).apply();
+        PrefsFlags.prefs(context).edit().putBoolean(KEY_ENABLED, enabled).apply();
     }
 
     /** OS-level grant, toggled by the user in system Settings only. */
@@ -58,9 +56,5 @@ public final class AllFilesAccess {
             fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             return fallback;
         }
-    }
-
-    private static SharedPreferences prefs(Context context) {
-        return context.getApplicationContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE);
     }
 }

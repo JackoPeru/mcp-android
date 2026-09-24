@@ -7,7 +7,8 @@ import org.json.JSONObject;
 import java.util.ArrayDeque;
 import java.util.concurrent.atomic.AtomicLong;
 
-/** Small in-memory event feed. It stores metadata only, never accessibility text or notification bodies. */
+/** Small in-memory event feed. It stores metadata only, never accessibility text or notification bodies.
+ * Consumed via the events/events_wait RPCs described in bridge/server.js; no logic duplicated. */
 public final class EventJournal {
     private static final int MAX_EVENTS = 256;
     private static final AtomicLong NEXT = new AtomicLong(1);
