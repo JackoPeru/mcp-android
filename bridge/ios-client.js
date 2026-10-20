@@ -1,0 +1,309 @@
+import { discoverIosLan } from './ios-discovery.js';
+import { TransportResolver, validateLanOrigin, validateTailscaleOrigin } from './transport.js';
+import {
+  MEDIA_TYPE as LAN_MEDIA_TYPE,
+  decryptResponse as decryptLanResponse,
+  encryptRequest as encryptLanRequest,
+  randomHelloNonce,
+  verifyHello,
+} from './ios-channel.js';
+
+export function readIosConfig(env = process.env) {
+  const token = env.IOS_MCP_TOKEN ?? '';
+  if (!/^[a-f0-9]{64}$/.test(token)) throw new Error('IOS_MCP_TOKEN must contain the 64 hex characters shown by the phone.');
+  const preference = (env.IOS_MCP_TRANSPORT ?? 'auto').toLowerCase();
+  if (!['auto', 'lan', 'tailscale'].includes(preference)) throw new Error('IOS_MCP_TRANSPORT must be auto, lan, or tailscale.');
+  const discoveryRaw = (env.IOS_MCP_DISCOVERY ?? 'true').toLowerCase();
+  if (!['true', 'false', '1', '0'].includes(discoveryRaw)) throw new Error('IOS_MCP_DISCOVERY must be true/false or 1/0.');
+  const discovery = discoveryRaw === 'true' || discoveryRaw === '1';
+  const legacyRaw = env.IOS_MCP_URL ?? '';
+  const lanRaw = env.IOS_MCP_LAN_URL ?? '';
+  const tailscaleRaw = env.IOS_MCP_TAILSCALE_URL ?? legacyRaw;
+  const lanUrl = lanRaw ? validateLanOrigin(lanRaw) : null;
+  const tailscaleUrl = tailscaleRaw ? validateTailscaleOrigin(tailscaleRaw) : null;
+
+  if (legacyRaw && !lanRaw && !env.IOS_MCP_TAILSCALE_URL && env.IOS_MCP_TRANSPORT === undefined) {
+    return { url: tailscaleUrl, token, preference: 'tailscale', lanUrl: null, tailscaleUrl, discovery: false };
+  }
+  if (preference === 'tailscale' && !tailscaleUrl) throw new Error('Tailscale transport requires IOS_MCP_TAILSCALE_URL or IOS_MCP_URL.');
+  if (preference === 'lan' && !lanUrl && !discovery) throw new Error('LAN transport requires a LAN URL or discovery.');
+  if (preference === 'auto' && !lanUrl && !tailscaleUrl && !discovery) throw new Error('No iOS MCP transport configured.');
+  return { token, preference, lanUrl, tailscaleUrl, discovery };
+}
+
+const LAN_SESSION_MAX_AGE_MS = 10 * 60 * 1000;
+
+function isLoopbackTestOrigin(value) {
+  try {
+    const endpoint = new URL(value);
+    return endpoint.protocol === 'http:' &&
+      (endpoint.hostname === '127.0.0.1' || endpoint.hostname === '::1' || endpoint.hostname.toLowerCase() === 'localhost');
+  } catch {
+    return false;
+  }
+}
+
+function validateDirectUrl(value) {
+  try { return validateLanOrigin(value); } catch { }
+  try { return validateTailscaleOrigin(value); } catch { }
+  if (isLoopbackTestOrigin(value)) return new URL(value).href;
+  throw new Error('Direct client URL must be a validated LAN/Tailscale origin on port 8765.');
+}
+
+export class IosClient {
+  constructor({ url = null, token, preference = 'auto', lanUrl = null, tailscaleUrl = null, discovery = true,
+                timeoutMs = 30000, probeTimeoutMs = 1000, maxResponseBytes = 8 * 1024 * 1024,
+                resolver = null, fetchImpl = fetch, now = () => Date.now() }) {
+    this.url = url ? validateDirectUrl(url) : null;
+    this.token = token;
+    this.timeoutMs = timeoutMs;
+    this.probeTimeoutMs = probeTimeoutMs;
+    this.maxResponseBytes = maxResponseBytes;
+    this.fetch = fetchImpl;
+    this.now = now;
+    this.resolver = resolver;
+    this.lanSessions = new Map();
+    this.lanSessionPromises = new Map();
+    this.lanSessionEstablishedAt = new Map();
+    if (!this.url && !this.resolver) {
+      this.resolver = new TransportResolver({ preference, lanUrl, tailscaleUrl, discovery }, {
+        discover: () => discoverIosLan({ token: this.token }),
+        probe: endpoint => this.callOnce(endpoint, 'status', {}, true, this.probeTimeoutMs),
+      });
+    }
+  }
+
+  async call(method, params = {}) {
+    const endpoint = this.url ? { url: this.url, transport: 'direct' } : await this.resolver.resolve();
+    try {
+      const result = await this.callOnce(endpoint.url, method, params, false);
+      this.resolver?.noteSuccess?.(endpoint.url, endpoint.transport);
+      return result;
+    } catch (error) {
+      this.resolver?.noteFailure?.(endpoint.url, endpoint.transport, error);
+      throw error;
+    }
+  }
+
+  async callOnce(url, method, params = {}, probe = false, timeoutMs = this.timeoutMs) {
+    let isLan = false;
+    try { validateLanOrigin(url); isLan = true; } catch { }
+    if (isLan) return this.callLanOnce(url, method, params, probe, timeoutMs);
+    return this.callBearerOnce(url, method, params, probe, timeoutMs);
+  }
+
+  ambiguousTransportError(probe, message) {
+    const error = new Error(probe ? `${message} (endpoint unreachable)` : `${message}; operation outcome unknown.`);
+    error.kind = probe ? 'unreachable' : 'outcome_unknown';
+    return error;
+  }
+
+  bearerAmbiguousError(probe, message) {
+    return this.ambiguousTransportError(probe, message);
+  }
+
+  lanUnauthenticatedResponseError(probe) {
+    return this.ambiguousTransportError(probe, 'iOS LAN response authentication failed');
+  }
+
+  mapTransportError(error, probe) {
+    if (error?.name === 'TimeoutError' || error?.name === 'AbortError') {
+      const wrapped = new Error(probe ? 'iOS endpoint probe timed out.' : 'iOS request timed out; operation outcome unknown. Inspect status before retrying.');
+      wrapped.kind = probe ? 'unreachable' : 'outcome_unknown';
+      return wrapped;
+    }
+    if (error?.message === 'fetch failed') {
+      const wrapped = new Error(probe ? 'iOS endpoint unreachable.' : 'iOS transport disconnected; operation outcome unknown.');
+      wrapped.kind = probe ? 'unreachable' : 'outcome_unknown';
+      return wrapped;
+    }
+    return null;
+  }
+
+  async callBearerOnce(url, method, params = {}, probe = false, timeoutMs = this.timeoutMs) {
+    let response;
+    try {
+      response = await this.fetch(new URL('rpc', url), {
+        method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(timeoutMs),
+        headers: { authorization: `Bearer ${this.token}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ method, params }),
+      });
+      if (response.status === 401) {
+        await response.body?.cancel();
+        const error = new Error('iOS HTTP 401');
+        error.kind = 'auth';
+        throw error;
+      }
+      if (response.status >= 300 && response.status < 400) {
+        await response.body?.cancel();
+        throw this.bearerAmbiguousError(probe, `iOS HTTP ${response.status}`);
+      }
+      let payload;
+      try {
+        payload = await this.readJsonResponse(response, this.maxResponseBytes);
+      } catch (error) {
+        if (error?.kind) throw error;
+        throw this.bearerAmbiguousError(probe, error.message);
+      }
+      return this.unwrapPayload(response, payload, probe);
+    } catch (error) {
+      const mapped = this.mapTransportError(error, probe);
+      if (mapped) throw mapped;
+      throw error;
+    }
+  }
+
+  async callLanOnce(url, method, params = {}, probe = false, timeoutMs = this.timeoutMs) {
+    let response;
+    try {
+      const session = await this.ensureLanSession(url, Math.min(timeoutMs, this.probeTimeoutMs));
+      const envelope = encryptLanRequest(this.token, session, { method, params });
+      response = await this.fetch(new URL('rpc', url), {
+        method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(timeoutMs),
+        headers: { 'content-type': LAN_MEDIA_TYPE },
+        body: JSON.stringify(envelope),
+      });
+      if (response.status >= 300 && response.status < 400) {
+        await response.body?.cancel();
+        this.invalidateLanSession(url);
+        throw this.lanUnauthenticatedResponseError(probe);
+      }
+      if (response.status === 401) {
+        await response.body?.cancel();
+        this.invalidateLanSession(url);
+        throw this.lanUnauthenticatedResponseError(probe);
+      }
+      let payload;
+      try {
+        payload = decryptLanResponse(this.token, session,
+          await this.readJsonResponse(response, this.lanWireResponseLimit()));
+        if (payload.requestNonce !== envelope.nonce) {
+          throw new Error('LAN response is bound to a different request');
+        }
+      } catch (error) {
+        if (error?.kind === 'outcome_unknown' || error?.kind === 'unreachable') {
+          this.invalidateLanSession(url);
+          throw error;
+        }
+        this.invalidateLanSession(url);
+        throw this.lanUnauthenticatedResponseError(probe);
+      }
+      try {
+        return this.unwrapPayload(response, payload, probe);
+      } catch (error) {
+        if (error?.kind === 'outcome_unknown' || error?.kind === 'unreachable') this.invalidateLanSession(url);
+        throw error;
+      }
+    } catch (error) {
+      const mapped = this.mapTransportError(error, probe);
+      if (mapped) throw mapped;
+      throw error;
+    }
+  }
+
+  async ensureLanSession(url, timeoutMs) {
+    const cached = this.lanSessions.get(url);
+    if (cached) {
+      const establishedAt = this.lanSessionEstablishedAt.get(url) ?? 0;
+      if (this.now() - establishedAt <= LAN_SESSION_MAX_AGE_MS) return cached;
+      this.invalidateLanSession(url);
+    }
+    const pending = this.lanSessionPromises.get(url);
+    if (pending) return pending;
+    const promise = this.establishLanSession(url, timeoutMs);
+    this.lanSessionPromises.set(url, promise);
+    try {
+      return await promise;
+    } finally {
+      if (this.lanSessionPromises.get(url) === promise) this.lanSessionPromises.delete(url);
+    }
+  }
+
+  async establishLanSession(url, timeoutMs) {
+    const nonce = randomHelloNonce();
+    const response = await this.fetch(new URL('hello', url), {
+      method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(timeoutMs),
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ nonce }),
+    });
+    if (response.status >= 300 && response.status < 400) {
+      await response.body?.cancel();
+      const error = new Error('iOS LAN server authentication failed');
+      error.kind = 'unreachable';
+      throw error;
+    }
+    if (!response.ok) {
+      await response.body?.cancel();
+      const error = new Error('iOS LAN server authentication failed');
+      error.kind = response.status === 401 ? 'auth' : 'unreachable';
+      throw error;
+    }
+    let hello;
+    try {
+      hello = await this.readJsonResponse(response, 4096);
+    } catch {
+      const error = new Error('iOS LAN server authentication failed');
+      error.kind = 'unreachable';
+      throw error;
+    }
+    const session = verifyHello(this.token, nonce, hello);
+    if (!session) {
+      const error = new Error('iOS LAN server authentication failed');
+      error.kind = 'auth';
+      throw error;
+    }
+    this.lanSessions.set(url, session);
+    this.lanSessionEstablishedAt.set(url, this.now());
+    return session;
+  }
+
+  invalidateLanSession(url) {
+    this.lanSessions.delete(url);
+    this.lanSessionEstablishedAt.delete(url);
+  }
+
+  async readJsonResponse(response, maxBytes) {
+    if (!response.body) {
+      const error = new Error(response.ok ? 'iOS returned empty response' : `iOS HTTP ${response.status}`);
+      throw error;
+    }
+    const reader = response.body.getReader();
+    let size = 0;
+    const chunks = [];
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        size += value.byteLength;
+        if (size > maxBytes) throw new Error('iOS response too large');
+        chunks.push(value);
+      }
+    } finally { await reader.cancel(); }
+    try { return JSON.parse(Buffer.concat(chunks, size).toString('utf8')); }
+    catch { throw new Error(response.ok ? 'iOS returned invalid JSON' : `iOS HTTP ${response.status}`); }
+  }
+
+  unwrapPayload(response, payload, probe = false) {
+    if (!payload || typeof payload !== 'object') {
+      throw this.bearerAmbiguousError(probe, 'iOS returned invalid response');
+    }
+    if (payload.error) {
+      const code = typeof payload.error.code === 'string' && /^[A-Z_]{1,80}$/.test(payload.error.code) ? payload.error.code : 'REMOTE_ERROR';
+      if (code === 'TIMEOUT') {
+        const error = new Error(probe
+          ? 'iOS endpoint probe timed out.'
+          : 'iOS TIMEOUT: operation outcome unknown. Observe the current state before retrying.');
+        error.kind = probe ? 'unreachable' : 'outcome_unknown';
+        throw error;
+      }
+      throw new Error(`iOS ${code}`);
+    }
+    if (!response.ok) throw this.bearerAmbiguousError(probe, `iOS HTTP ${response.status}`);
+    if (!Object.hasOwn(payload, 'result')) throw this.bearerAmbiguousError(probe, 'iOS response has no result');
+    return payload.result;
+  }
+
+  lanWireResponseLimit() {
+    return Math.ceil(this.maxResponseBytes * 4 / 3) + 4096;
+  }
+}

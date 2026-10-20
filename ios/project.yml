@@ -1,0 +1,55 @@
+name: MCPiOS
+options:
+  bundleIdPrefix: com.example
+  deploymentTarget:
+    iOS: 17.0
+targets:
+  MCPiOSCore:
+    type: framework
+    platform: iOS
+    sources:
+      - path: Sources/MCPiOSCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.mcpios.core
+        SWIFT_VERSION: 5.9
+        IPHONEOS_DEPLOYMENT_TARGET: 17.0
+        BUILD_LIBRARY_FOR_DISTRIBUTION: YES
+  MCPiOS:
+    type: application
+    platform: iOS
+    sources:
+      - path: MCPiOS
+    dependencies:
+      - target: MCPiOSCore
+    info:
+      path: MCPiOS/Info.plist
+    entitlements:
+      path: MCPiOS/MCPiOS.entitlements
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.mcpios
+        MARKETING_VERSION: 0.8.20
+        CURRENT_PROJECT_VERSION: 31
+        SWIFT_VERSION: 5.9
+        IPHONEOS_DEPLOYMENT_TARGET: 17.0
+  MCPiOSTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests/MCPiOSTests
+    dependencies:
+      - target: MCPiOSCore
+    settings:
+      base:
+        SWIFT_VERSION: 5.9
+        IPHONEOS_DEPLOYMENT_TARGET: 17.0
+schemes:
+  MCPiOS:
+    build:
+      targets:
+        MCPiOS: all
+        MCPiOSTests: [test]
+    test:
+      targets:
+        - name: MCPiOSTests

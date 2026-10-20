@@ -8,9 +8,10 @@
   },
   "scripts": {
     "start": "node bridge/server.js",
+    "start:ios": "node bridge/ios-server.js",
     "test": "node --test tests/*.test.js",
     "version:check": "node scripts/version-check.mjs",
-    "check": "npm run version:check && node --check bridge/client.js && node --check bridge/server.js && npm test",
+    "check": "npm run version:check && node --check bridge/client.js && node --check bridge/server.js && node --check bridge/ios-client.js && node --check bridge/ios-server.js && node --check bridge/ios-channel.js && node --check bridge/ios-discovery.js && npm test",
     "check:ci": "npm run check && npm audit --omit=dev --audit-level=moderate && git diff --check"
   },
   "dependencies": {

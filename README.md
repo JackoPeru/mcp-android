@@ -94,6 +94,16 @@ La catena di aggiornamento applica questi vincoli:
 
 Il certificato che firma le release deve restare identico a quello usato dalla v0.5.0 e dalle release successive. La workflow `.github/workflows/release.yml` verifica esplicitamente il fingerprint prima di pubblicare. Le release sono **immutabili**: un tag esistente non viene aggiornato né sovrascritto. La pubblicazione locale richiede inoltre `main` pulito e perfettamente sincronizzato con `origin/main`.
 
+## Versione iOS
+
+Esiste una versione iOS in `ios/` con bridge `ios_*` (`node bridge/ios-server.js`,
+`avvia-mcp-ios.cmd`, env `IOS_MCP_*`). Riusa lo stesso disegno di sicurezza con
+dominio separato `mcp-ios-*`, ma su iOS stock la parità totale è impossibile
+(niente controllo cross-app, shell, notification listener, tap di sistema):
+l'automazione passa dalle Scorciatoie (`ios_shortcut_run`), i file restano nel
+sandbox + bookmark e lo screenshot vale solo in foreground. Dettagli, matrice
+metodi e build Xcode in `docs/ios-parity.md` e `ios/README.md`.
+
 ## Tool
 
 | Tool | Uso |

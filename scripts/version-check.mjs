@@ -9,6 +9,9 @@ const pkg = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.ur
 const lock = JSON.parse(fs.readFileSync(new URL('../package-lock.json', import.meta.url), 'utf8'));
 const gradle = fs.readFileSync(new URL('../android/app/build.gradle', import.meta.url), 'utf8');
 const bridge = fs.readFileSync(new URL('../bridge/server.js', import.meta.url), 'utf8');
+const iosBridge = fs.readFileSync(new URL('../bridge/ios-server.js', import.meta.url), 'utf8');
+const iosPlist = fs.readFileSync(new URL('../ios/MCPiOS/Info.plist', import.meta.url), 'utf8');
+const iosProject = fs.readFileSync(new URL('../ios/project.yml', import.meta.url), 'utf8');
 const buildScript = fs.readFileSync(new URL('../build-android.ps1', import.meta.url), 'utf8');
 const releaseWorkflow = fs.readFileSync(new URL('../.github/workflows/release.yml', import.meta.url), 'utf8');
 const publishScript = fs.readFileSync(new URL('../publish-release.ps1', import.meta.url), 'utf8');
@@ -27,6 +30,12 @@ const bridgeVersion = bridge.match(/MCP_VERSION\s*=\s*['"]([^'"]+)['"]/)?.[1]
   ?? bridge.match(/new\s+McpServer\s*\(\s*\{\s*name\s*:\s*['"]android-private-mcp['"]\s*,\s*version\s*:\s*['"]([^'"]+)['"]/)?.[1];
 if (bridgeVersion !== version) fail(`MCP server version ${bridgeVersion} != ${version}`);
 
+const iosBridgeVersion = iosBridge.match(/IOS_MCP_VERSION\s*=\s*['"]([^'"]+)['"]/)?.[1];
+if (iosBridgeVersion !== version) fail(`iOS MCP server version ${iosBridgeVersion} != ${version}`);
+const plistVersion = iosPlist.match(/<key>CFBundleShortVersionString<\/key>\s*<string>([^<]+)<\/string>/)?.[1];
+if (plistVersion !== version) fail(`iOS Info.plist version ${plistVersion} != ${version}`);
+if (!iosProject.includes(`MARKETING_VERSION: ${version}`)) fail('ios/project.yml MARKETING_VERSION does not match package.json');
+
 if (!buildScript.includes('mcp-android-$version-debug.apk')) {
   fail('build-android.ps1 does not derive the APK name from package.json version');
 }
@@ -44,6 +53,20 @@ if (toolCount < 1) {
 for (const expected of expectedCounts) {
   if (expected !== toolCount) {
     fail(`MCP tool count drift: server has ${toolCount}, tests expect ${expected} (update tests + docs)`);
+  }
+}
+
+const iosToolDefinitions = iosBridge.match(/^\s*\['[a-z_]+', '/gm) ?? [];
+const iosToolCount = iosToolDefinitions.length + 1; // +1 for ios_batch, registered separately
+const iosTestSources = ['../tests/ios.test.js']
+  .map(relative => fs.readFileSync(new URL(relative, import.meta.url), 'utf8')).join('\n');
+const iosExpectedCounts = new Set([...iosTestSources.matchAll(/tools\.length,\s*(\d+)/g)].map(match => Number(match[1])));
+if (iosToolCount < 1) {
+  fail(`iOS MCP tool count drift: found ${iosToolCount} (update tests + docs)`);
+}
+for (const expected of iosExpectedCounts) {
+  if (expected !== iosToolCount) {
+    fail(`iOS MCP tool count drift: server has ${iosToolCount}, tests expect ${expected} (update tests + docs)`);
   }
 }
 

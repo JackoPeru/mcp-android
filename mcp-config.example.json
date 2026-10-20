@@ -12,5 +12,17 @@
         "_comment_ANDROID_MCP_LAN_URL": "Opzionale: fissa manualmente l'endpoint LAN, altrimenti usa discovery."
       }
     }
+    "ios": {
+      "command": "node",
+      "args": ["C:/path/to/mcp-android/bridge/ios-server.js"],
+      "env": {
+        "IOS_MCP_TAILSCALE_URL": "http://100.x.y.z:8765",
+        "IOS_MCP_LAN_URL": "http://192.168.x.y:8765",
+        "IOS_MCP_TRANSPORT": "auto",
+        "IOS_MCP_DISCOVERY": "true",
+        "IOS_MCP_TOKEN": "REPLACE_WITH_THE_64_HEX_CHARACTERS_FROM_THE_IPHONE",
+        "_comment_IOS_MCP_LAN_URL": "Opzionale: fissa manualmente l'endpoint LAN, altrimenti usa discovery."
+      }
+    }
   }
 }
