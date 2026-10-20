@@ -33,7 +33,7 @@ public final class RpcDispatcher {
         case "device_info": return deviceInfo()
         case "capabilities": return ["capabilities": capabilities(), "service": Self.service]
         case "diagnostics": return diagnostics(params)
-        case "screenshot": return screenshot()
+        case "screenshot": return try screenshot()
         case "screen_context": return screenContext(params)
         case "clipboard_get": return clipboardGet()
         case "clipboard_set": try clipboardSet(params); return ["ok": true]
@@ -98,7 +98,7 @@ public final class RpcDispatcher {
 
     // MARK: - Screenshot (solo foreground in-app: UIWindow snapshot)
 
-    func screenshot() -> [String: Any] {
+    func screenshot() throws -> [String: Any] {
         guard let png = MainActor.assumeIsolated({ inAppPNG() }, file: #file, line: #line) else {
             throw RpcError.unavailable("Screenshot requires foreground app")
         }
@@ -267,7 +267,7 @@ public final class RpcDispatcher {
                 if out.count >= limit { return }
                 if qMatch(n, query) { out.append(url.appendingPathComponent(n).path) }
                 var isD: ObjCBool = false
-                _ = fm.fileExists(atPath: url.appendingPathComponent(n).path, is: &isD)
+                _ = fm.fileExists(atPath: url.appendingPathComponent(n).path, isDirectory: &isD)
                 if isD.boolValue { walk(url.appendingPathComponent(n), depth: depth + 1) }
             }
         }
