@@ -55,7 +55,7 @@ public final class HttpServer {
     // MARK: - Socket
 
     private func bind(address: String, port: UInt16) throws -> Int32 {
-        let fd = socket(AF_INET, Int32(SOCK_STREAM.rawValue), 0)
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
         guard fd >= 0 else { throw RpcError.failed("socket failed") }
         var one: Int32 = 1
         setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, socklen_t(MemoryLayout<Int32>.size))

@@ -42,7 +42,7 @@ public final class FileStore {
     }
 
     public func addBookmark(rootId: String, url: URL) throws {
-        let data = try url.bookmarkData(options: [.withSecurityScope], includingResourceValuesForKeys: nil, relativeTo: nil)
+        let data = try url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil)
         var dict = (defaults.dictionary(forKey: bookmarkKey) as? [String: Data]) ?? [:]
         dict[rootId] = data
         defaults.set(dict, forKey: bookmarkKey)
@@ -81,7 +81,7 @@ public final class FileStore {
     public func list(rootId: String, path: String, offset: Int, limit: Int) throws -> [[String: Any]] {
         let dir = try resolve(rootId: rootId, path: path)
         var isDir: ObjCBool = false
-        guard fm.fileExists(atPath: dir.path, is: &isDir), isDir.boolValue else {
+        guard fm.fileExists(atPath: dir.path, isDirectory: &isDir), isDir.boolValue else {
             throw RpcError.invalidArgument("Not a directory")
         }
         let scoped = startScoped(dir)
@@ -89,7 +89,7 @@ public final class FileStore {
         let names = (try? fm.contentsOfDirectory(atPath: dir.path).sorted()) ?? []
         return names.dropFirst(max(0, offset)).prefix(max(1, min(limit, 200))).map { name in
             var isD: ObjCBool = false
-            _ = fm.fileExists(atPath: dir.appendingPathComponent(name).path, is: &isD)
+            _ = fm.fileExists(atPath: dir.appendingPathComponent(name).path, isDirectory: &isD)
             return ["name": name, "isDirectory": isD.boolValue]
         }
     }
