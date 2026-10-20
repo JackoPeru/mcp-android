@@ -24,8 +24,13 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Select Xcode 16
-        run: sudo xcode-select -s /Applications/Xcode_16.app/Contents/Developer || sudo xcode-select -p
+      - name: Select latest Xcode with simulator runtime
+        run: |
+          ls -d /Applications/Xcode*.app
+          sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)/Contents/Developer"
+          xcodebuild -version
+          xcrun simctl list runtimes
+          xcrun simctl list devices available | head -20
 
       - name: Install XcodeGen
         run: brew install xcodegen
@@ -37,16 +42,13 @@ jobs:
       - name: Run core tests on simulator
         working-directory: ios
         run: |
+          UDID=$(xcrun simctl list devices available -j | python3 -c "import json,sys; d=json.load(sys.stdin)['devices']; print(next(dev['udid'] for r in d.values() for dev in r if 'iPhone' in dev['name']))")
+          echo "Using simulator $UDID"
           xcodebuild test \
             -project MCPiOS.xcodeproj \
             -scheme MCPiOS \
-            -destination 'platform=iOS Simulator,name=iPhone 16' \
+            -destination "id=$UDID" \
             -only-testing:MCPiOSTests \
-            CODE_SIGNING_ALLOWED=NO \
-            -quiet || xcodebuild test \
-            -project MCPiOS.xcodeproj \
-            -scheme MCPiOS \
-            -destination 'generic/platform=iOS Simulator' \
             CODE_SIGNING_ALLOWED=NO
 
       - name: Build unsigned app for device
