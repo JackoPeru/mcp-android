@@ -39,6 +39,16 @@ APK disponibile come fonte primaria dalla **GitHub Release v0.8.20** (`mcp-andro
 8. Sul PC, nella cartella del progetto, esegui `npm ci --ignore-scripts` (da `cmd.exe` usa `npm.cmd ci --ignore-scripts`).
 9. Adatta `mcp-config.example.json`: inserisci il token e, per il fallback remoto, l'IP Tailscale del telefono. In modalità `auto` non serve configurare l'IP Wi-Fi: il bridge prova la LAN tramite discovery locale e usa Tailscale soltanto se la LAN non è raggiungibile.
 
+### Collegamento in un passo (basta la key)
+
+Se usi un agente, non configurare niente a mano: apri `COLLEGA-TELEFONO.md`,
+copia il prompt, sostituisci `INCOLLA_QUI_LA_KEY` con i 64 caratteri della
+schermata token e invia. L'agente verifica la key, prova da solo la discovery
+LAN (`node scripts/collega-telefono.mjs --key …`), scrive
+`mcp-config.android.json` già pronto e conferma con `android_status`.
+Sulla stessa Wi-Fi non serve nessun IP; fuori casa l'agente ti chiede solo
+l'IP Tailscale mostrato dal telefono.
+
 L'updater interno è stato introdotto con la v0.6.0. Se sul telefono è installata una versione precedente che non contiene l'updater, installa manualmente una volta la release attuale; da quel momento le versioni successive possono essere rilevate dall'app.
 
 Il token è una credenziale: dalla schermata token usa **Copia negli appunti** e incollalo solo nella configurazione locale dell'agente. Non pubblicarlo, non inviarlo nelle conversazioni, non aggiungerlo a Git. Ruotandolo nell'app, la vecchia configurazione smette di autenticarsi.
