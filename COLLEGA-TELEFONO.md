@@ -1,19 +1,14 @@
-# Collega il telefono Android: un comando, un copia-incolla
+# Collega il telefono Android: copia, incolla, fatto
 
-> **Per l'utente — due passi, niente terminale da capire:**
+> **Per l'utente — il prompt pronto è in `PROMPT-AGENTE.md`:**
+> aprilo, sostituisci `INCOLLA_QUI_LA_KEY` con i 64 caratteri che trovi nel
+> telefono in **app MCP Android > schermata token > Copia negli appunti**,
+> copia tutto e incollalo al tuo agente. Al resto pensa lui.
 >
-> 1. Genera il messaggio con un doppio clic su **`stampa-prompt.cmd`**
->    (oppure da terminale: `node scripts/collega-telefono.mjs --print-prompt`).
->    Il comando stampa il messaggio **già pronto e portabile**: zero percorsi
->    assoluti di questo PC, perché l'agente gira su un'altra macchina e risolve
->    tutto da sé (come fa la console di Desktop-AI).
-> 2. Copia tutto l'output, sostituisci `INCOLLA_QUI_LA_KEY` con i 64 caratteri
->    che trovi nel telefono in **app MCP Android > schermata token > Copia negli
->    appunti**, incollalo al tuo agente e invia. Al resto pensa lui.
->
-> Se la key ce l'hai già sottomano, falla compilare direttamente:
-> `node scripts/collega-telefono.mjs --print-prompt --key <64-hex>`
-> (compare per intero solo nell'output, da copiare in chat: mai scritta su file).
+> Alternative: genera il messaggio al volo con un doppio clic su
+> **`stampa-prompt.cmd`** (oppure
+> `node scripts/collega-telefono.mjs --print-prompt [--key <64-hex>]`):
+> stampa lo stesso testo, portabile su qualsiasi macchina.
 >
 > (Se l'agente ha accesso a questa repo, può anche caricare la procedura completa
 > da `skills/android-connect/SKILL.md`: sotto c'è già tutto il necessario.)
