@@ -10,8 +10,8 @@ android {
         applicationId 'com.example.androidmcp'
         minSdk 30
         targetSdk 35
-        versionCode 33
-        versionName '0.8.22'
+        versionCode 34
+        versionName '0.8.23'
         resConfigs 'en', 'it'
     }
 
