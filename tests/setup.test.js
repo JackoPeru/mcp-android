@@ -6,9 +6,12 @@ import { test } from 'node:test';
 import {
   DEFAULT_OUT,
   buildClientConfig,
+  detectHostFile,
   main,
   maskKey,
+  mergeHostConfigFile,
   normalizeKey,
+  resolveHostFile,
   validateKey,
 } from '../scripts/collega-telefono.mjs';
 
@@ -84,6 +87,73 @@ test('main senza key chiede la key senza ambiguità', async () => {
   } finally {
     if (saved !== undefined) process.env.ANDROID_MCP_TOKEN = saved;
   }
+});
+
+test('resolveHostFile mappa ogni host al file giusto', () => {
+  const opts = { APPDATA: 'C:/A', HOME: 'C:/H', cwd: 'C:/W' };
+  assert.ok(resolveHostFile('claude-desktop', opts).path.endsWith('claude_desktop_config.json'));
+  assert.ok(resolveHostFile('cursor', opts).path.includes('.cursor'));
+  assert.ok(resolveHostFile('vscode', opts).path.includes('.vscode'));
+  assert.ok(resolveHostFile('openclaw', opts).path.includes('.openclaw'));
+  assert.equal(resolveHostFile('vscode', opts).shape, 'servers');
+  assert.equal(resolveHostFile('openclaw', opts).shape, 'mcp.servers');
+  assert.throws(() => resolveHostFile('nope', opts), /non riconosciuto/);
+});
+
+test('detectHostFile: zero, uno o troppi config esistenti', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-host-'));
+  const opts = { APPDATA: path.join(dir, 'A'), HOME: path.join(dir, 'H'), cwd: path.join(dir, 'W') };
+  assert.throws(() => detectHostFile({ opts }), /Nessun config host/);
+  const only = resolveHostFile('cursor', opts);
+  fs.mkdirSync(path.dirname(only.path), { recursive: true });
+  fs.writeFileSync(only.path, '{}');
+  assert.equal(detectHostFile({ opts }).host, 'cursor');
+  const second = resolveHostFile('openclaw', opts);
+  fs.mkdirSync(path.dirname(second.path), { recursive: true });
+  fs.writeFileSync(second.path, '{}');
+  assert.throws(() => detectHostFile({ opts }), /più config host/);
+});
+
+test('mergeHostConfigFile crea, fonde e fa backup senza toccare le altre entry', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-merge-'));
+  const target = path.join(dir, 'mcp.json');
+  const entry = { command: 'node', args: ['/x/bridge/server.js'], env: { ANDROID_MCP_TOKEN: KEY } };
+  const created = mergeHostConfigFile(target, 'mcpServers', 'android', entry);
+  assert.equal(created.backup, null);
+  let doc = JSON.parse(fs.readFileSync(target, 'utf8'));
+  assert.deepEqual(doc.mcpServers.android, entry);
+
+  const again = mergeHostConfigFile(target, 'mcpServers', 'android', entry);
+  assert.ok(again.backup && fs.existsSync(again.backup));
+
+  // Le altre entry restano intatte.
+  doc.mcpServers.altro = { command: 'x' };
+  fs.writeFileSync(target, JSON.stringify(doc));
+  mergeHostConfigFile(target, 'mcpServers', 'android', entry);
+  doc = JSON.parse(fs.readFileSync(target, 'utf8'));
+  assert.deepEqual(doc.mcpServers.altro, { command: 'x' });
+
+  // Forma vscode: avvolge con type stdio.
+  const vsc = path.join(dir, 'vsc.json');
+  mergeHostConfigFile(vsc, 'servers', 'android', entry);
+  doc = JSON.parse(fs.readFileSync(vsc, 'utf8'));
+  assert.equal(doc.servers.android.type, 'stdio');
+
+  // JSON rotto o forma inattesa: non tocca niente.
+  const broken = path.join(dir, 'broken.json');
+  fs.writeFileSync(broken, '{non json');
+  assert.throws(() => mergeHostConfigFile(broken, 'mcpServers', 'android', entry), /illeggibile/);
+  const weird = path.join(dir, 'weird.json');
+  fs.writeFileSync(weird, '[]');
+  assert.throws(() => mergeHostConfigFile(weird, 'mcpServers', 'android', entry), /forma inattesa/);
+});
+
+test('main --dry-run --write-host calcola il path senza scrivere', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-dry-'));
+  const result = await main(['--key', KEY, '--dry-run', '--write-host', 'cursor'], dir);
+  assert.equal(result.dryRun, true);
+  assert.ok(result.hostPath.includes('.cursor'));
+  assert.deepEqual(fs.readdirSync(dir), []);
 });
 
 test('file generato e prompt restano fuori da git', () => {

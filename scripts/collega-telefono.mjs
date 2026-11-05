@@ -4,7 +4,10 @@
 // Uso (lo lancia l'agente, l'utente fornisce solo la key):
 //   node scripts/collega-telefono.mjs --key <64 caratteri hex>
 //   node scripts/collega-telefono.mjs --key <hex> --tailscale-url http://100.x.y.z:8765
+//   node scripts/collega-telefono.mjs --key <hex> --write-host auto   (scrive anche nel config del tuo client MCP)
 //   node scripts/collega-telefono.mjs --check   (riverifica la config esistente)
+// Host per --write-host: auto (= l'unico config esistente), claude-desktop, cursor, vscode, openclaw.
+// --server-key cambia il nome del server (default: android).
 //
 // La key non viene MAI stampata, loggata o committata: nei messaggi compare
 // solo mascherata (primi 4 + ultimi 4 caratteri). Il file generato
@@ -66,6 +69,82 @@ export function buildClientConfig({ key, tailscaleUrl, lanUrl, bridgePath }) {
       },
     },
   };
+}
+
+export const HOSTS = ['claude-desktop', 'cursor', 'vscode', 'openclaw'];
+
+// Tabella config host (stessa di skills/android-connect/SKILL.md).
+// shape: dove vive la entry del server nel JSON del client.
+export function resolveHostFile(host, { APPDATA = process.env.APPDATA ?? '', HOME = process.env.HOME ?? process.env.USERPROFILE ?? '', cwd = process.cwd() } = {}) {
+  switch (host) {
+    case 'claude-desktop':
+      return { path: path.join(APPDATA, 'Claude', 'claude_desktop_config.json'), shape: 'mcpServers' };
+    case 'cursor':
+      return { path: path.join(HOME, '.cursor', 'mcp.json'), shape: 'mcpServers' };
+    case 'vscode':
+      return { path: path.join(cwd, '.vscode', 'mcp.json'), shape: 'servers' };
+    case 'openclaw':
+      return { path: path.join(HOME, '.openclaw', 'openclaw.json'), shape: 'mcp.servers' };
+    default:
+      throw new Error(`Host non riconosciuto: ${host}. Usa uno di: ${HOSTS.join(', ')}.`);
+  }
+}
+
+export function detectHostFile({ hosts = HOSTS, opts = {} } = {}) {
+  const existing = hosts
+    .map(h => ({ host: h, ...resolveHostFile(h, opts) }))
+    .filter(x => fs.existsSync(x.path));
+  if (existing.length === 1) return existing[0];
+  if (existing.length === 0) {
+    throw new Error(
+      'Nessun config host trovato. Specifica --write-host <host> ' +
+        `(${HOSTS.join(', ')}) oppure crea prima il file del tuo client MCP.`,
+    );
+  }
+  throw new Error(
+    'Trovati più config host: ' + existing.map(x => `${x.host} (${x.path})`).join(', ') +
+      '. Specifica --write-host <host>.',
+  );
+}
+
+function setNested(doc, shape, serverKey, entry) {
+  if (shape === 'mcpServers') {
+    doc.mcpServers = { ...(doc.mcpServers ?? {}), [serverKey]: entry };
+  } else if (shape === 'servers') {
+    doc.servers = { ...(doc.servers ?? {}), [serverKey]: { type: 'stdio', ...entry } };
+  } else if (shape === 'mcp.servers') {
+    doc.mcp = doc.mcp ?? {};
+    doc.mcp.servers = { ...(doc.mcp.servers ?? {}), [serverKey]: entry };
+  }
+  return doc;
+}
+
+// Merge sicuro: backup .bak-<timestamp>, scrittura su tmp + rename atomico,
+// le altre entry restano intatte. Rifiuta JSON non oggetto (mai sovrascrivere alla cieca).
+export function mergeHostConfigFile(hostPath, shape, serverKey, entry) {
+  let doc = {};
+  let backup = null;
+  if (fs.existsSync(hostPath)) {
+    const raw = fs.readFileSync(hostPath, 'utf8');
+    try {
+      doc = JSON.parse(raw);
+    } catch {
+      throw new Error(`Config host illeggibile (non JSON valido): ${hostPath}. Sistemalo a mano, non lo tocco.`);
+    }
+    if (!doc || typeof doc !== 'object' || Array.isArray(doc)) {
+      throw new Error(`Config host con forma inattesa: ${hostPath}. Sistemalo a mano, non lo tocco.`);
+    }
+    const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
+    backup = `${hostPath}.bak-${stamp}`;
+    fs.copyFileSync(hostPath, backup);
+  } else {
+    fs.mkdirSync(path.dirname(hostPath), { recursive: true });
+  }
+  setNested(doc, shape, serverKey, entry);
+  const tmp = `${hostPath}.tmp-${process.pid}`;
+  fs.writeFileSync(tmp, JSON.stringify(doc, null, 2) + '\n', { mode: 0o600 });
+  fs.renameSync(tmp, hostPath);
+  return { path: hostPath, backup };
 }
 
 function parseArgs(argv) {
@@ -146,15 +225,34 @@ export async function main(argv = process.argv.slice(2), cwd = process.cwd()) {
     bridgePath: bridgeAbs,
   });
 
+  const serverKey = args['server-key'] ?? 'android';
+  const writeHost = args['write-host'];
+
   if (!args['dry-run']) {
     const status = await probeLive(config.mcpServers.android.env);
     writeConfigFile(outPath, config);
-    return {
+    const result = {
       ok: true,
       key: maskKey(key),
       out: outPath,
       via: status?.preferredTransport ?? 'unknown',
     };
+    if (writeHost) {
+      const target = writeHost === 'auto'
+        ? detectHostFile()
+        : { host: writeHost, ...resolveHostFile(writeHost) };
+      const merged = mergeHostConfigFile(
+        target.path, target.shape, serverKey, config.mcpServers.android,
+      );
+      result.host = target.host;
+      result.hostPath = merged.path;
+      result.hostBackup = merged.backup;
+    }
+    return result;
+  }
+  if (writeHost && writeHost !== 'auto') {
+    const target = resolveHostFile(writeHost);
+    return { ok: true, dryRun: true, key: maskKey(key), out: outPath, hostPath: target.path };
   }
   return { ok: true, dryRun: true, key: maskKey(key), out: outPath };
 }
@@ -165,9 +263,15 @@ if (invokedAsScript) {
   main().then(
     result => {
       console.log(`OK: telefono raggiungibile via ${result.via ?? 'verifica saltata (dry-run)'}.`);
-      if (result.out) console.log(`Config scritta in: ${result.out}`);
+      console.log(`Config scritta in: ${result.out}`);
+      if (result.hostPath) {
+        console.log(`Host ${result.host ?? ''} aggiornato in: ${result.hostPath}`);
+        if (result.hostBackup) console.log(`Backup precedente in: ${result.hostBackup}`);
+        console.log('Riavvia/ricarica il client MCP e chiama android_status.');
+      } else {
+        console.log('Prossimo passo: punta il tuo client MCP a questo file e chiama android_status.');
+      }
       console.log(`Key usata: ${result.key} (mai mostrata per intero, mai committata).`);
-      console.log('Prossimo passo: punta il tuo client MCP a questo file e chiama android_status.');
     },
     error => {
       console.error(`ERRORE: ${error.message}`);
