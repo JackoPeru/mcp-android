@@ -32,6 +32,7 @@ import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import org.json.JSONObject;
 
@@ -553,12 +554,28 @@ public final class MainActivity extends Activity {
     private void copyWithAutoClear(String label, String value) {
         safely(() -> {
             ClipboardManager clipboard = getSystemService(ClipboardManager.class);
-            if (clipboard == null) { toast("Appunti non disponibili su questo dispositivo."); return; }
+            if (clipboard == null) {
+                dialog("Appunti non disponibili", "Copia non riuscita su questo dispositivo.");
+                return;
+            }
             clipboard.setPrimaryClip(ClipData.newPlainText(label, value));
-            toast("Copiato. Gli appunti verranno svuotati tra 45 secondi.");
+            showCopiedHint();
             handler.removeCallbacks(clearClipboard);
             handler.postDelayed(clearClipboard, CLIPBOARD_CLEAR_MS);
         });
+    }
+
+    /**
+     * Copy confirmation must never offer another Copy button: in the pairing
+     * guide it overwrote the just-copied agent message with the confirmation
+     * text itself. A transient Toast cannot touch the clipboard.
+     */
+    private void showCopiedHint() {
+        if (isFinishing() || isDestroyed()) return;
+        if (Looper.myLooper() != Looper.getMainLooper()) { handler.post(this::showCopiedHint); return; }
+        try {
+            Toast.makeText(this, "Copiato negli appunti (si svuotano tra 45 secondi).", Toast.LENGTH_LONG).show();
+        } catch (RuntimeException ignored) { }
     }
 
     private void copyToClipboard(String label, String value) {
