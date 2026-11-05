@@ -158,6 +158,14 @@ test('main --dry-run --write-host calcola il path senza scrivere', async () => {
   assert.deepEqual(fs.readdirSync(dir), []);
 });
 
+function assertPortable(prompt) {
+  // Via http(s):// prima: il match lettera + ':' + '/' scatta su http://.
+  const scrubbed = prompt.replace(/https?:\/\//g, '');
+  assert.ok(!/[A-Za-z]:[\\/]/.test(scrubbed), 'niente path Windows assoluti');
+  assert.ok(!prompt.includes('/home/') && !prompt.includes('/Users/'), 'niente home Unix');
+  assert.ok(!prompt.split('\n').some(line => line.startsWith('/')), 'niente path Unix assoluti');
+}
+
 test('buildAgentPrompt è portabile: niente percorsi assoluti, placeholder senza key', () => {
   const withKey = buildAgentPrompt({ key: KEY, serverKey: 'android' });
   assert.ok(withKey.includes(KEY));
@@ -165,12 +173,11 @@ test('buildAgentPrompt è portabile: niente percorsi assoluti, placeholder senza
   assert.ok(withKey.includes('--write-host auto'));
   assert.ok(!withKey.includes(KEY_PLACEHOLDER));
   // Portabilità stile Desktop-AI: nessun path assoluto di chi genera.
-  assert.ok(!/[A-Za-z]:[\\/]/.test(withKey), 'niente path Windows assoluti');
-  assert.ok(!withKey.includes('/home/') && !withKey.includes('/Users/'), 'niente home Unix');
+  assertPortable(withKey);
   const withoutKey = buildAgentPrompt({});
   assert.ok(withoutKey.includes(KEY_PLACEHOLDER));
   assert.ok(!withoutKey.includes(KEY));
-  assert.ok(!/[A-Za-z]:[\\/]/.test(withoutKey));
+  assertPortable(withoutKey);
   assert.throws(() => buildAgentPrompt({ key: 'corta' }), /64 caratteri esadecimali/);
   const custom = buildAgentPrompt({ serverKey: 'casa' });
   assert.ok(custom.includes('server "casa"'));
@@ -187,7 +194,7 @@ test('main --print-prompt stampa senza rete né disco', async () => {
     const withKey = await main(['--print-prompt', '--key', KEY], dir);
     assert.ok(withKey.prompt.includes(KEY));
     assert.ok(!withKey.prompt.includes(KEY_PLACEHOLDER));
-    assert.ok(!/[A-Za-z]:[\\/]/.test(withKey.prompt), 'prompt portabile: niente path assoluti');
+    assertPortable(withKey.prompt);
   } finally {
     if (saved !== undefined) process.env.ANDROID_MCP_TOKEN = saved;
   }
