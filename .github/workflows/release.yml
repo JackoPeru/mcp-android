@@ -91,13 +91,12 @@ jobs:
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_B64 }}
         run: |
-          mkdir -p "$HOME/.android"
-          printf '%s' "$KEYSTORE_B64" | base64 --decode > "$HOME/.android/debug.keystore"
-          chmod 600 "$HOME/.android/debug.keystore"
+          printf '%s' "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/release.keystore"
+          chmod 600 "$RUNNER_TEMP/release.keystore"
 
       - name: Verify signing certificate
         run: |
-          actual="$(keytool -list -v -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey -keypass android | sed -n 's/.*SHA256: //p' | head -n1 | tr -d ':' | tr '[:upper:]' '[:lower:]')"
+          actual="$(keytool -list -v -keystore "$RUNNER_TEMP/release.keystore" -storepass android -alias androiddebugkey -keypass android | sed -n 's/.*SHA256: //p' | head -n1 | tr -d ':' | tr '[:upper:]' '[:lower:]')"
           expected="7be7c380f31c81c050a86ea8cefd4ec3bd41972ddd864a8edb97b1e20c84823f"
           test "$actual" = "$expected" || { echo "::error::Wrong signing certificate"; exit 1; }
 
@@ -105,7 +104,11 @@ jobs:
         working-directory: android
         run: |
           chmod +x gradlew
-          ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug --console=plain
+          ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug --console=plain \
+            "-Pandroid.injected.signing.store.file=$RUNNER_TEMP/release.keystore" \
+            -Pandroid.injected.signing.store.password=android \
+            -Pandroid.injected.signing.key.alias=androiddebugkey \
+            -Pandroid.injected.signing.key.password=android
 
       - name: Prepare release assets
         shell: bash
@@ -134,4 +137,4 @@ jobs:
 
       - name: Remove restored signing key
         if: always()
-        run: rm -f "$HOME/.android/debug.keystore"
+        run: rm -f "$RUNNER_TEMP/release.keystore"
