@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { pathToFileURL } from 'node:url';
 import { IosClient, readIosConfig } from './ios-client.js';
 
-export const IOS_MCP_VERSION = '0.8.21';
+export const IOS_MCP_VERSION = '0.8.22';
 
 const FILE_WRITE_MAX_BYTES = 32 * 1024;
 const FILE_WRITE_MAX_BASE64_CHARS = Math.ceil(FILE_WRITE_MAX_BYTES / 3) * 4;

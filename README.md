@@ -27,7 +27,7 @@ I listener **TCP RPC** non ascoltano mai su `0.0.0.0` o `::`: vengono legati sol
 
 ## Installazione senza cavo
 
-APK disponibile come fonte primaria dalla **GitHub Release v0.8.21** (`mcp-android-0.8.21-debug.apk` con SHA-256 nel `.sha256` accanto). La copia in `dist/` è solo un artefatto locale di build, non la fonte di installazione. È una build debug firmata per installazione personale, non una release Play Store.
+APK disponibile come fonte primaria dalla **GitHub Release v0.8.22** (`mcp-android-0.8.22-debug.apk` con SHA-256 nel `.sha256` accanto). La copia in `dist/` è solo un artefatto locale di build, non la fonte di installazione. È una build debug firmata per installazione personale, non una release Play Store.
 
 1. Trasferisci l'APK al telefono, ad esempio con Tailscale Taildrop o il tuo servizio file, e aprilo dal telefono. Autorizza l'installazione per l'app da cui lo apri.
 2. Apri MCP Android e abilita il servizio Accessibilità nelle impostazioni Android. Per APK installati esternamente, Android può richiedere prima **Consenti impostazioni con restrizioni** nelle informazioni dell'app.
@@ -232,7 +232,7 @@ npm run check
 
 (da `cmd.exe` usa `npm.cmd` al posto di `npm`).
 
-I test verificano configurazione privata, bearer Tailscale legacy, timeout/limiti/redirect, HMAC discovery cross-language, source-IP/subnet validation, handshake server-authenticated, vettori AES-256-GCM Node↔Java, chiavi separate per direzione, anti-replay, assenza del bearer/plaintext sul path LAN, `outcome_unknown` su risposta LAN manomessa, callback VPN, flow DSL, snapshot/diff, capability routing, release identity/firma e discovery dei **67 tool MCP** tramite processo stdio. La build Android esegue anche unit test e lint. I test desktop/JVM **non** dimostrano ancora broadcast/routing reale su uno specifico telefono/router né consumo batteria fisico. Risultati finali: `docs/acceptance.md` (stato v0.8.21).
+I test verificano configurazione privata, bearer Tailscale legacy, timeout/limiti/redirect, HMAC discovery cross-language, source-IP/subnet validation, handshake server-authenticated, vettori AES-256-GCM Node↔Java, chiavi separate per direzione, anti-replay, assenza del bearer/plaintext sul path LAN, `outcome_unknown` su risposta LAN manomessa, callback VPN, flow DSL, snapshot/diff, capability routing, release identity/firma e discovery dei **67 tool MCP** tramite processo stdio. La build Android esegue anche unit test e lint. I test desktop/JVM **non** dimostrano ancora broadcast/routing reale su uno specifico telefono/router né consumo batteria fisico. Risultati finali: `docs/acceptance.md` (stato v0.8.22).
 
 Per ricompilare servono JDK 17 o successivo e Android SDK 35. `build-android.ps1` trova SDK e Java locali, incluso l'eventuale JDK portatile ignorato in `.tools/jdk17`, esegue build/test/lint e aggiorna APK e checksum in `dist`. `publish-release.ps1` ripete le verifiche e pubblica la release GitHub dalla macchina locale. Non cambia variabili di sistema né usa ADB. Il progetto include Gradle Wrapper.
 
