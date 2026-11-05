@@ -6,6 +6,13 @@
 //   node scripts/collega-telefono.mjs --key <hex> --tailscale-url http://100.x.y.z:8765
 //   node scripts/collega-telefono.mjs --key <hex> --write-host auto   (scrive anche nel config del tuo client MCP)
 //   node scripts/collega-telefono.mjs --check   (riverifica la config esistente)
+// Uso (per l'utente: genera il messaggio già pronto da incollare all'agente):
+//   node scripts/collega-telefono.mjs --print-prompt [--key <hex>]
+//
+//   Stampa il prompt completo con i valori veri già compilati (percorso repo,
+//   percorso bridge). Se passi --key, la key compare per intero nel messaggio
+//   (serve all'agente: copialo in chat e basta). Senza --key resta il segnaposto
+//   INCOLLA_QUI_LA_KEY da sostituire. Non tocca rete né disco.
 // Host per --write-host: auto (= l'unico config esistente), claude-desktop, cursor, vscode, openclaw.
 // --server-key cambia il nome del server (default: android).
 //
@@ -147,13 +154,53 @@ export function mergeHostConfigFile(hostPath, shape, serverKey, entry) {
   return { path: hostPath, backup };
 }
 
+// Messaggio già pronto da incollare all'agente, con i valori veri compilati
+// (stesso ruolo del messaggio generato dalla console di Desktop-AI).
+// key: se fornita compare per intero (l'agente ne ha bisogno in chat),
+// altrimenti resta il segnaposto INCOLLA_QUI_LA_KEY.
+export const KEY_PLACEHOLDER = 'INCOLLA_QUI_LA_KEY';
+
+export function buildAgentPrompt({ key = null, repoRoot, serverKey = 'android' } = {}) {
+  const shown = key ? validateKey(key) : KEY_PLACEHOLDER;
+  const repo = String(repoRoot ?? '.');
+  const bridge = path.join(repo, 'bridge', 'server.js');
+  return [
+    `Collegati al mio telefono Android via MCP (server "${serverKey}").`,
+    '',
+    `KEY DEL TELEFONO (segreta: non diffonderla oltre questa chat): ${shown}`,
+    '',
+    `Contesto: repo mcp-android in ${repo}. Bridge in ${bridge} (se non lo trovi lì, fermati e chiedimi il percorso della repo: non inventare path).`,
+    '',
+    'SE TELEFONO E PC SONO SULLA STESSA WI-FI (il caso normale: niente IP da configurare):',
+    '1. Controlla node >= 22 (node --version); se manca node_modules nella repo, lancia `npm ci --ignore-scripts`.',
+    '2. Esegui dalla root della repo:',
+    `     node scripts/collega-telefono.mjs --key ${shown} --write-host auto`,
+    '   Lo script trova il telefono da solo (discovery LAN + handshake), lo verifica',
+    '   con una `status` reale, scrive mcp-config.android.json e fonde la entry nel',
+    '   config del tuo host (backup .bak-timestamp, merge senza cancellare gli altri server).',
+    '   Se --write-host auto fallisce (zero o più config trovati), specifica il tuo:',
+    '   claude-desktop, cursor, vscode oppure openclaw.',
+    '3. Verifica: ricontrolla il file scritto e chiama android_status (deve rispondere il telefono).',
+    '4. Riferisci in chiaro: file toccato, backup, esito (via lan|tailscale), SU QUALE MACCHINA hai operato.',
+    '   Poi ricordami di riavviare/ricaricare il client MCP. Se qualcosa fallisce, incolla l\u2019errore esatto e fermati.',
+    '',
+    'SE IL TELEFONO NON È SULLA STESSA WI-FI: fermati e chiedimi l\u2019IP Tailscale mostrato',
+    'dal telefono (100.x.y.z), poi rilancia aggiungendo --tailscale-url http://<ip>:8765.',
+    'Non improvvisare mai URL o porte diverse da 8765.',
+    '',
+    'Regole: non stampare MAI la key per intero (solo primi4…ultimi4), non committare MAI',
+    'file che la contengono, non cambiare impostazioni del telefono. Se la key smette di',
+    'funzionare è stata ruotata: chiedimi di ricopiarla dal telefono.',
+  ].join('\n');
+}
+
 function parseArgs(argv) {
   const out = {};
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (!a.startsWith('--')) throw new Error(`Argomento non riconosciuto: ${a}`);
     const name = a.slice(2);
-    if (name === 'check' || name === 'dry-run') { out[name] = true; continue; }
+    if (name === 'check' || name === 'dry-run' || name === 'print-prompt') { out[name] = true; continue; }
     const value = argv[++i];
     if (value === undefined || value.startsWith('--')) throw new Error(`Opzione --${name} senza valore.`);
     out[name] = value;
@@ -190,12 +237,21 @@ function writeConfigFile(outPath, config) {
 
 export async function main(argv = process.argv.slice(2), cwd = process.cwd()) {
   const args = parseArgs(argv);
-  const bridgeAbs = path.join(
+  const repoRoot = path.join(
     path.dirname(fileURLToPath(import.meta.url)),
     '..',
-    'bridge',
-    'server.js',
   );
+
+  if (args['print-prompt']) {
+    // Solo stampa: nessun probe di rete, nessuna scrittura su disco.
+    const prompt = buildAgentPrompt({
+      key: args.key ?? process.env.ANDROID_MCP_TOKEN ?? null,
+      repoRoot,
+      serverKey: args['server-key'] ?? 'android',
+    });
+    return { ok: true, printed: true, prompt };
+  }
+  const bridgeAbs = path.join(repoRoot, 'bridge', 'server.js');
   const outPath = path.resolve(cwd, args.out ?? args.output ?? DEFAULT_OUT);
 
   const key = readKey(args);
@@ -262,6 +318,10 @@ const invokedAsScript =
 if (invokedAsScript) {
   main().then(
     result => {
+      if (result.printed) {
+        console.log(result.prompt);
+        return;
+      }
       console.log(`OK: telefono raggiungibile via ${result.via ?? 'verifica saltata (dry-run)'}.`);
       console.log(`Config scritta in: ${result.out}`);
       if (result.hostPath) {

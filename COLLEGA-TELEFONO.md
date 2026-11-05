@@ -1,27 +1,41 @@
-# Collega il telefono Android: un solo messaggio all'agente
+# Collega il telefono Android: un comando, un copia-incolla
 
-> **Per l'utente — ti basta questo:** copia tutto il blocco qui sotto, incollalo
-> al tuo agente, sostituisci `INCOLLA_QUI_LA_KEY` con i 64 caratteri che trovi nel
-> telefono in **app MCP Android > schermata token > Copia negli appunti**, e invia.
-> Non tocchi nessun terminale: scrive lui i file e verifica.
+> **Per l'utente — due passi, niente terminale da capire:**
+>
+> 1. Nella repo, lancia (basta anche da Esplora file con un doppio clic su
+>    `stampa-prompt.cmd`, oppure da terminale):
+>    ```
+>    node scripts/collega-telefono.mjs --print-prompt
+>    ```
+>    Il comando stampa il messaggio **già pronto** con i percorsi veri di
+>    questo PC compilati (niente valori da inventare).
+> 2. Copia tutto l'output, sostituisci `INCOLLA_QUI_LA_KEY` con i 64 caratteri
+>    che trovi nel telefono in **app MCP Android > schermata token > Copia negli
+>    appunti**, incollalo al tuo agente e invia. Al resto pensa lui.
+>
+> Se la key ce l'hai già sottomano, falla compilare direttamente:
+> `node scripts/collega-telefono.mjs --print-prompt --key <64-hex>`
+> (compare per intero solo nell'output, da copiare in chat: mai scritta su file).
+>
 > (Se l'agente ha accesso a questa repo, può anche caricare la procedura completa
-> da `skills/android-connect/SKILL.md`: qui sotto c'è già tutto il necessario.)
+> da `skills/android-connect/SKILL.md`: sotto c'è già tutto il necessario.)
 
 ---
 
-## 🤖 Messaggio da incollare all'agente (con la key)
+## 🤖 Messaggio generato (esempio: così appare l'output)
+
+Il testo esatto lo produce `--print-prompt` con i tuoi percorsi reali. La forma è questa:
 
 ```
 Collegati al mio telefono Android via MCP (server "android").
 
 KEY DEL TELEFONO (segreta: non diffonderla oltre questa chat): INCOLLA_QUI_LA_KEY
 
-Contesto: repo mcp-android. Bridge in <repo>/bridge/server.js (se non lo trovi
-lì, fermati e chiedimi il percorso della repo: non inventare path).
+Contesto: repo mcp-android in <percorso-vero>. Bridge in <percorso-vero>/bridge/server.js (se non lo trovi lì, fermati e chiedimi il percorso della repo: non inventare path).
 
 SE TELEFONO E PC SONO SULLA STESSA WI-FI (il caso normale: niente IP da configurare):
 1. Controlla node >= 22 (node --version); se manca node_modules nella repo, lancia `npm ci --ignore-scripts`.
-2. Esegui dalla root della repo (sostituisci la key vera):
+2. Esegui dalla root della repo:
      node scripts/collega-telefono.mjs --key INCOLLA_QUI_LA_KEY --write-host auto
    Lo script trova il telefono da solo (discovery LAN + handshake), lo verifica
    con una `status` reale, scrive mcp-config.android.json e fonde la entry nel
@@ -47,6 +61,6 @@ funzionare è stata ruotata: chiedimi di ricopiarla dal telefono.
 
 - **Prerequisiti sul telefono:** app installata, servizio Accessibilità attivo,
   **Avvia controllo remoto** premuto. Stessa Wi-Fi = zero configurazione.
-- **Se cambi key** (pulsante Ruota nell'app): ripeti il messaggio con la nuova key.
+- **Se cambi key** (pulsante Ruota nell'app): rigenera il messaggio e ripeti.
 - **Dettagli tecnici** (formati config di ogni host, policy segreti, limiti):
   `skills/android-connect/SKILL.md`.

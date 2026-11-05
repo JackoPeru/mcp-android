@@ -41,15 +41,16 @@ APK disponibile come fonte primaria dalla **GitHub Release v0.8.21** (`mcp-andro
 
 ### Collegamento in un passo (basta la key)
 
-Se usi un agente, non configurare niente a mano: apri `COLLEGA-TELEFONO.md`,
-copia il prompt, sostituisci `INCOLLA_QUI_LA_KEY` con i 64 caratteri della
-schermata token e invia. L'agente verifica la key, prova da solo la discovery
-LAN (`node scripts/collega-telefono.mjs --key … --write-host auto`), scrive
+Se usi un agente, non configurare niente a mano: fai doppio clic su
+`stampa-prompt.cmd` (oppure `node scripts/collega-telefono.mjs --print-prompt`),
+copia il messaggio già compilato, sostituisci `INCOLLA_QUI_LA_KEY` con i 64
+caratteri della schermata token e invialo all'agente. L'agente verifica la key,
+prova da solo la discovery LAN (`--write-host auto`), scrive
 `mcp-config.android.json` e fonde la entry direttamente nel config del tuo
 client MCP (con backup), poi conferma con `android_status`.
 Sulla stessa Wi-Fi non serve nessun IP; fuori casa l'agente ti chiede solo
-l'IP Tailscale mostrato dal telefono. Procedura completa per agenti in
-`skills/android-connect/SKILL.md`.
+l'IP Tailscale mostrato dal telefono. Dettagli in `COLLEGA-TELEFONO.md`,
+procedura completa per agenti in `skills/android-connect/SKILL.md`.
 
 L'updater interno è stato introdotto con la v0.6.0. Se sul telefono è installata una versione precedente che non contiene l'updater, installa manualmente una volta la release attuale; da quel momento le versioni successive possono essere rilevate dall'app.
 

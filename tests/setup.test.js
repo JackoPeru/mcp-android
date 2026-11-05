@@ -5,6 +5,8 @@ import path from 'node:path';
 import { test } from 'node:test';
 import {
   DEFAULT_OUT,
+  KEY_PLACEHOLDER,
+  buildAgentPrompt,
   buildClientConfig,
   detectHostFile,
   main,
@@ -153,6 +155,38 @@ test('main --dry-run --write-host calcola il path senza scrivere', async () => {
   const result = await main(['--key', KEY, '--dry-run', '--write-host', 'cursor'], dir);
   assert.equal(result.dryRun, true);
   assert.ok(result.hostPath.includes('.cursor'));
+  assert.deepEqual(fs.readdirSync(dir), []);
+});
+
+test('buildAgentPrompt compila i valori veri, placeholder senza key', () => {
+  const withKey = buildAgentPrompt({ key: KEY, repoRoot: 'C:/repo', serverKey: 'android' });
+  assert.ok(withKey.includes(KEY));
+  assert.ok(withKey.includes('C:/repo'));
+  assert.ok(withKey.includes('C:/repo/bridge/server.js') || withKey.includes('C:\\repo\\bridge\\server.js'));
+  assert.ok(withKey.includes('--write-host auto'));
+  assert.ok(!withKey.includes(KEY_PLACEHOLDER));
+  const withoutKey = buildAgentPrompt({ repoRoot: 'C:/repo' });
+  assert.ok(withoutKey.includes(KEY_PLACEHOLDER));
+  assert.ok(!withoutKey.includes(KEY));
+  assert.throws(() => buildAgentPrompt({ key: 'corta', repoRoot: 'C:/repo' }), /64 caratteri esadecimali/);
+  const custom = buildAgentPrompt({ repoRoot: 'C:/repo', serverKey: 'casa' });
+  assert.ok(custom.includes('server "casa"'));
+});
+
+test('main --print-prompt stampa senza rete né disco', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-prompt-'));
+  const saved = process.env.ANDROID_MCP_TOKEN;
+  delete process.env.ANDROID_MCP_TOKEN;
+  try {
+    const withPlaceholder = await main(['--print-prompt'], dir);
+    assert.equal(withPlaceholder.printed, true);
+    assert.ok(withPlaceholder.prompt.includes(KEY_PLACEHOLDER));
+    const withKey = await main(['--print-prompt', '--key', KEY], dir);
+    assert.ok(withKey.prompt.includes(KEY));
+    assert.ok(!withKey.prompt.includes(KEY_PLACEHOLDER));
+  } finally {
+    if (saved !== undefined) process.env.ANDROID_MCP_TOKEN = saved;
+  }
   assert.deepEqual(fs.readdirSync(dir), []);
 });
 
