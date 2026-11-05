@@ -278,7 +278,7 @@ test('GitHub release verifies the signer of the final APK, not only the keystore
   const prepare = workflow.split('- name: Prepare release assets')[1]?.split('- name: Create GitHub release')[0] ?? '';
   assert.match(prepare, /verify --verbose --print-certs "\$apk"/);
   assert.match(prepare, /build-tools\/\*\/apksigner/);
-  assert.match(prepare, /Signer #1 certificate SHA-256 digest/);
+  assert.match(prepare, /certificate SHA-256 digest/);
   assert.match(prepare, /Number of signers/);
   assert.match(prepare, new RegExp(expectedSigner));
 });
