@@ -39,8 +39,10 @@ to reach it — the phone exposes both, you normally need nothing but the key:
 
 ## Paths: this PC or another one
 
-Bracketed paths below may come from another machine. Never blindly reuse an
-absolute path from another computer:
+The pasted request contains NO absolute paths by design (it was generated to be
+portable): resolve everything on YOUR machine. Bracketed paths below are
+placeholders, never paths of another computer — never blindly reuse an
+absolute path from somewhere else:
 
 - The bridge is always named `server.js` inside `bridge/`. Look for it in this
   order and use the first hit: `<mcp-android-checkout>/bridge/server.js`

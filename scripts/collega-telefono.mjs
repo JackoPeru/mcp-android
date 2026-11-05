@@ -9,10 +9,11 @@
 // Uso (per l'utente: genera il messaggio già pronto da incollare all'agente):
 //   node scripts/collega-telefono.mjs --print-prompt [--key <hex>]
 //
-//   Stampa il prompt completo con i valori veri già compilati (percorso repo,
-//   percorso bridge). Se passi --key, la key compare per intero nel messaggio
-//   (serve all'agente: copialo in chat e basta). Senza --key resta il segnaposto
-//   INCOLLA_QUI_LA_KEY da sostituire. Non tocca rete né disco.
+//   Stampa il prompt completo e PORTABILE (zero percorsi assoluti: l'agente
+//   gira su un'altra macchina e risolve tutto da sé). Se passi --key, la key
+//   compare per intero nel messaggio (serve all'agente: copialo in chat e
+//   basta). Senza --key resta il segnaposto INCOLLA_QUI_LA_KEY da sostituire.
+//   Non tocca rete né disco.
 // Host per --write-host: auto (= l'unico config esistente), claude-desktop, cursor, vscode, openclaw.
 // --server-key cambia il nome del server (default: android).
 //
@@ -154,22 +155,26 @@ export function mergeHostConfigFile(hostPath, shape, serverKey, entry) {
   return { path: hostPath, backup };
 }
 
-// Messaggio già pronto da incollare all'agente, con i valori veri compilati
-// (stesso ruolo del messaggio generato dalla console di Desktop-AI).
+// Messaggio già pronto da incollare all'agente (stesso ruolo del messaggio
+// generato dalla console di Desktop-AI).
+// PORTABILITÀ: qui dentro ZERO percorsi assoluti — l'agente gira su UN'ALTRA
+// macchina e risolve tutto da sé (nomi file, path relativi, discovery).
 // key: se fornita compare per intero (l'agente ne ha bisogno in chat),
 // altrimenti resta il segnaposto INCOLLA_QUI_LA_KEY.
 export const KEY_PLACEHOLDER = 'INCOLLA_QUI_LA_KEY';
 
-export function buildAgentPrompt({ key = null, repoRoot, serverKey = 'android' } = {}) {
+export function buildAgentPrompt({ key = null, serverKey = 'android' } = {}) {
   const shown = key ? validateKey(key) : KEY_PLACEHOLDER;
-  const repo = String(repoRoot ?? '.');
-  const bridge = path.join(repo, 'bridge', 'server.js');
   return [
     `Collegati al mio telefono Android via MCP (server "${serverKey}").`,
     '',
     `KEY DEL TELEFONO (segreta: non diffonderla oltre questa chat): ${shown}`,
     '',
-    `Contesto: repo mcp-android in ${repo}. Bridge in ${bridge} (se non lo trovi lì, fermati e chiedimi il percorso della repo: non inventare path).`,
+    'Contesto: hai una copia della repo mcp-android. Il bridge è il file server.js dentro la cartella bridge/.',
+    'Trovalo in quest\u2019ordine e usa il primo che esiste, senza inventare path:',
+    '1. <tua-copia-della-repo>/bridge/server.js (checkout sviluppatore);',
+    '2. il percorso del bridge se te l\u2019ho dato io in questo messaggio.',
+    'Esegui tutto dalla root di quella repo, sulla TUA macchina (questo messaggio non contiene percorsi assoluti).',
     '',
     'SE TELEFONO E PC SONO SULLA STESSA WI-FI (il caso normale: niente IP da configurare):',
     '1. Controlla node >= 22 (node --version); se manca node_modules nella repo, lancia `npm ci --ignore-scripts`.',
@@ -244,9 +249,9 @@ export async function main(argv = process.argv.slice(2), cwd = process.cwd()) {
 
   if (args['print-prompt']) {
     // Solo stampa: nessun probe di rete, nessuna scrittura su disco.
+    // Niente percorsi di QUESTA macchina: l'agente gira altrove.
     const prompt = buildAgentPrompt({
       key: args.key ?? process.env.ANDROID_MCP_TOKEN ?? null,
-      repoRoot,
       serverKey: args['server-key'] ?? 'android',
     });
     return { ok: true, printed: true, prompt };

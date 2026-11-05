@@ -158,18 +158,21 @@ test('main --dry-run --write-host calcola il path senza scrivere', async () => {
   assert.deepEqual(fs.readdirSync(dir), []);
 });
 
-test('buildAgentPrompt compila i valori veri, placeholder senza key', () => {
-  const withKey = buildAgentPrompt({ key: KEY, repoRoot: 'C:/repo', serverKey: 'android' });
+test('buildAgentPrompt è portabile: niente percorsi assoluti, placeholder senza key', () => {
+  const withKey = buildAgentPrompt({ key: KEY, serverKey: 'android' });
   assert.ok(withKey.includes(KEY));
-  assert.ok(withKey.includes('C:/repo'));
-  assert.ok(withKey.includes('C:/repo/bridge/server.js') || withKey.includes('C:\\repo\\bridge\\server.js'));
+  assert.ok(withKey.includes('bridge/server.js'));
   assert.ok(withKey.includes('--write-host auto'));
   assert.ok(!withKey.includes(KEY_PLACEHOLDER));
-  const withoutKey = buildAgentPrompt({ repoRoot: 'C:/repo' });
+  // Portabilità stile Desktop-AI: nessun path assoluto di chi genera.
+  assert.ok(!/[A-Za-z]:[\\/]/.test(withKey), 'niente path Windows assoluti');
+  assert.ok(!withKey.includes('/home/') && !withKey.includes('/Users/'), 'niente home Unix');
+  const withoutKey = buildAgentPrompt({});
   assert.ok(withoutKey.includes(KEY_PLACEHOLDER));
   assert.ok(!withoutKey.includes(KEY));
-  assert.throws(() => buildAgentPrompt({ key: 'corta', repoRoot: 'C:/repo' }), /64 caratteri esadecimali/);
-  const custom = buildAgentPrompt({ repoRoot: 'C:/repo', serverKey: 'casa' });
+  assert.ok(!/[A-Za-z]:[\\/]/.test(withoutKey));
+  assert.throws(() => buildAgentPrompt({ key: 'corta' }), /64 caratteri esadecimali/);
+  const custom = buildAgentPrompt({ serverKey: 'casa' });
   assert.ok(custom.includes('server "casa"'));
 });
 
@@ -184,6 +187,7 @@ test('main --print-prompt stampa senza rete né disco', async () => {
     const withKey = await main(['--print-prompt', '--key', KEY], dir);
     assert.ok(withKey.prompt.includes(KEY));
     assert.ok(!withKey.prompt.includes(KEY_PLACEHOLDER));
+    assert.ok(!/[A-Za-z]:[\\/]/.test(withKey.prompt), 'prompt portabile: niente path assoluti');
   } finally {
     if (saved !== undefined) process.env.ANDROID_MCP_TOKEN = saved;
   }

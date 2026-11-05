@@ -43,7 +43,8 @@ APK disponibile come fonte primaria dalla **GitHub Release v0.8.21** (`mcp-andro
 
 Se usi un agente, non configurare niente a mano: fai doppio clic su
 `stampa-prompt.cmd` (oppure `node scripts/collega-telefono.mjs --print-prompt`),
-copia il messaggio già compilato, sostituisci `INCOLLA_QUI_LA_KEY` con i 64
+copia il messaggio già pronto e portabile (zero percorsi assoluti: l'agente
+risolve tutto sulla sua macchina), sostituisci `INCOLLA_QUI_LA_KEY` con i 64
 caratteri della schermata token e invialo all'agente. L'agente verifica la key,
 prova da solo la discovery LAN (`--write-host auto`), scrive
 `mcp-config.android.json` e fonde la entry direttamente nel config del tuo

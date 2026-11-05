@@ -2,13 +2,11 @@
 
 > **Per l'utente — due passi, niente terminale da capire:**
 >
-> 1. Nella repo, lancia (basta anche da Esplora file con un doppio clic su
->    `stampa-prompt.cmd`, oppure da terminale):
->    ```
->    node scripts/collega-telefono.mjs --print-prompt
->    ```
->    Il comando stampa il messaggio **già pronto** con i percorsi veri di
->    questo PC compilati (niente valori da inventare).
+> 1. Genera il messaggio con un doppio clic su **`stampa-prompt.cmd`**
+>    (oppure da terminale: `node scripts/collega-telefono.mjs --print-prompt`).
+>    Il comando stampa il messaggio **già pronto e portabile**: zero percorsi
+>    assoluti di questo PC, perché l'agente gira su un'altra macchina e risolve
+>    tutto da sé (come fa la console di Desktop-AI).
 > 2. Copia tutto l'output, sostituisci `INCOLLA_QUI_LA_KEY` con i 64 caratteri
 >    che trovi nel telefono in **app MCP Android > schermata token > Copia negli
 >    appunti**, incollalo al tuo agente e invia. Al resto pensa lui.
@@ -31,7 +29,11 @@ Collegati al mio telefono Android via MCP (server "android").
 
 KEY DEL TELEFONO (segreta: non diffonderla oltre questa chat): INCOLLA_QUI_LA_KEY
 
-Contesto: repo mcp-android in <percorso-vero>. Bridge in <percorso-vero>/bridge/server.js (se non lo trovi lì, fermati e chiedimi il percorso della repo: non inventare path).
+Contesto: hai una copia della repo mcp-android. Il bridge è il file server.js dentro la cartella bridge/.
+Trovalo in quest'ordine e usa il primo che esiste, senza inventare path:
+1. <tua-copia-della-repo>/bridge/server.js (checkout sviluppatore);
+2. il percorso del bridge se te l'ho dato io in questo messaggio.
+Esegui tutto dalla root di quella repo, sulla TUA macchina (questo messaggio non contiene percorsi assoluti).
 
 SE TELEFONO E PC SONO SULLA STESSA WI-FI (il caso normale: niente IP da configurare):
 1. Controlla node >= 22 (node --version); se manca node_modules nella repo, lancia `npm ci --ignore-scripts`.
