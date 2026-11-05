@@ -26,6 +26,19 @@ public final class RpcDispatcher {
     private static final java.util.concurrent.locks.ReentrantLock UI = new java.util.concurrent.locks.ReentrantLock();
     private static final java.util.concurrent.locks.ReentrantLock FILE = new java.util.concurrent.locks.ReentrantLock();
     private static final java.util.concurrent.locks.ReentrantLock SHELL = new java.util.concurrent.locks.ReentrantLock();
+    // Served-RPC counter for the in-app "agent collegato?" check. dispatch() is
+    // only reached after authentication, so every increment proves an agent got
+    // through — even a plain `status` probe. Static: it survives stop/start of
+    // the foreground session inside the same process.
+    private static final java.util.concurrent.atomic.AtomicLong servedRpcs = new java.util.concurrent.atomic.AtomicLong();
+    private static volatile long lastRpcTimeMs;
+
+    static long servedRpcs() { return servedRpcs.get(); }
+
+    static long lastRpcAgeMs() {
+        long at = lastRpcTimeMs;
+        return at <= 0 ? -1 : Math.max(0, System.currentTimeMillis() - at);
+    }
 
     public RpcDispatcher(Context context) {
         this.context = context.getApplicationContext();
@@ -54,6 +67,8 @@ public final class RpcDispatcher {
         if (RpcPolicy.showsVeil(method)) SessionVeil.pulse(context);
         try { return dispatchAllowed(method, params); }
         finally {
+            servedRpcs.incrementAndGet();
+            lastRpcTimeMs = System.currentTimeMillis();
             if (lock != null) lock.unlock();
             if (RpcPolicy.showsVeil(method)) SessionVeil.pulse(context);
         }

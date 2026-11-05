@@ -288,7 +288,7 @@ public final class MainActivity extends Activity {
         ui.add(pairing, ui.button("Mostra token di accesso", true, () -> safely(this::showToken)), 18);
         ui.add(pairing, ui.text("Mostrare il token interrompe la sessione attiva.", 12, UiKit.MUTED, false), 10);
         ui.add(pairing, ui.button("Guida collegamento agente", false, () -> safely(this::showPairingGuide)), 14);
-        ui.add(pairing, ui.text("Tre passi guidati con token e configurazione già pronti da copiare.", 12, UiKit.MUTED, false), 10);
+        ui.add(pairing, ui.text("Messaggio pronto da copiare in chat, con token e indirizzi veri, più verifica di collegamento.", 12, UiKit.MUTED, false), 10);
         Button rotate = ui.button("Revoca e genera nuovo token", false, () -> new AlertDialog.Builder(this)
                 .setTitle("Sostituire il token?")
                 .setMessage("Il controllo remoto si fermerà. Gli agenti configurati con il vecchio token non potranno più accedere.")
@@ -565,54 +565,65 @@ public final class MainActivity extends Activity {
         copyWithAutoClear(label, value);
     }
 
+    private long agentLinkBaseline;
+
     private void showPairingGuide() {
+        // Endpoints are read before stopping: showing the token stops the
+        // session by policy, but the LAN/Tailscale addresses stay valid.
+        JSONObject transport = McpForegroundService.transportStatus();
+        final java.util.List<String> lanUrls = endpointUrls(transport, "lan");
+        final java.util.List<String> tailscaleUrls = endpointUrls(transport, "tailscale");
         McpForegroundService.stopNow(); renderStatus();
         final String token = SecretStore.current(this);
-        final String tailscale = tailscaleAddressOrPlaceholder();
-        final String config = "{\n"
-                + "  \"mcpServers\": {\n"
-                + "    \"android\": {\n"
-                + "      \"command\": \"node\",\n"
-                + "      \"args\": [\"C:/path/to/mcp-android/bridge/server.js\"],\n"
-                + "      \"env\": {\n"
-                + "        \"ANDROID_MCP_TRANSPORT\": \"auto\",\n"
-                + "        \"ANDROID_MCP_DISCOVERY\": \"true\",\n"
-                + "        \"ANDROID_MCP_TAILSCALE_URL\": \"" + tailscale + "\",\n"
-                + "        \"ANDROID_MCP_TOKEN\": \"" + token + "\"\n"
-                + "      }\n"
-                + "    }\n"
-                + "  }\n"
-                + "}";
+        final String message = AgentLink.buildMessage(AgentLink.SERVER_KEY, token, lanUrls, tailscaleUrls);
+        agentLinkBaseline = RpcDispatcher.servedRpcs();
         LinearLayout content = ui.column(); content.setPadding(ui.dp(24), ui.dp(16), ui.dp(24), ui.dp(8));
-        content.addView(ui.text("Passo 1", 13, UiKit.ACCENT, true));
-        ui.add(content, ui.text("Copia il token con il tasto qui sotto.", 15, UiKit.TEXT, false), 4);
-        ui.add(content, ui.button("Copia token", true, () -> copyToClipboard("Token MCP Android", token)), 10);
-        content.addView(ui.text("Passo 2", 13, UiKit.ACCENT, true));
-        ui.add(content, ui.text("Copia la configurazione completa.", 15, UiKit.TEXT, false), 4);
-        ui.add(content, ui.button("Copia configurazione", true, () -> copyToClipboard("Configurazione MCP Android", config)), 10);
-        content.addView(ui.text("Passo 3", 13, UiKit.ACCENT, true));
-        ui.add(content, ui.text("Nel tuo agente (Claude, OpenClaw, Hermes o simili) apri le impostazioni MCP, aggiungi un server stdio e incolla.", 15, UiKit.TEXT, false), 4);
-        ui.add(content, ui.text("Sistema il percorso del bridge, serve Node.js 22+, telefono e PC sulla stessa Wi-Fi (o Tailscale fuori casa). Poi premi Avvia qui e verifica con android_status.", 13, UiKit.MUTED, false), 8);
+        content.addView(ui.text("1 · Dillo al tuo agente in chat (consigliato)", 17, UiKit.TEXT, true));
+        ui.add(content, ui.text("Copia il messaggio, incollalo al tuo agente: scrive lui i file e verifica. Tu non tocchi nessun terminale.", 14, UiKit.MUTED, false), 8);
+        TextView box = ui.text(message, 13, UiKit.TEXT, false);
+        box.setTextIsSelectable(true);
+        box.setTypeface(Typeface.MONOSPACE); box.setTextDirection(View.TEXT_DIRECTION_LTR);
+        box.setPadding(ui.dp(16), ui.dp(16), ui.dp(16), ui.dp(16)); box.setBackground(ui.shape(UiKit.BG, UiKit.BORDER, 12));
+        box.setSaveEnabled(false);
+        // The message embeds the token: hide it from our own accessibility
+        // tree (an attached agent must never read it back) like the token view.
+        box.setId(R.id.token_secret);
+        box.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
+        box.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS);
+        ui.add(content, box, 12);
+        ui.add(content, ui.button("Copia messaggio", true, () -> copyToClipboard("Messaggio agente MCP Android", message)), 12);
+        final TextView verifyResult = ui.text("Premi Avvia controllo remoto, incolla il messaggio al tuo agente, poi premi verifica.", 13, UiKit.MUTED, false);
+        ui.add(content, verifyResult, 12);
+        ui.add(content, ui.button("Ho incollato, verifica", true, () -> safely(() -> {
+            JSONObject live = McpForegroundService.transportStatus();
+            boolean running = McpForegroundService.sessionEnabled() && McpForegroundService.isRunning();
+            AgentLink.VerifyResult checked = AgentLink.verify(running, agentLinkBaseline,
+                    RpcDispatcher.servedRpcs(), RpcDispatcher.lastRpcAgeMs(),
+                    live.optString("preferredTransport", "none"));
+            verifyResult.setText(checked.text);
+            verifyResult.setTextColor(checked.ok ? UiKit.ACCENT : UiKit.WARNING);
+        })), 8);
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
         scroll.setClipToPadding(false);
         scroll.setVerticalScrollBarEnabled(false);
         scroll.addView(content, new ScrollView.LayoutParams(-1, -2));
-        AlertDialog dialog = new AlertDialog.Builder(this).setTitle("Collega un agente in 3 passi").setView(scroll)
+        AlertDialog dialog = new AlertDialog.Builder(this).setTitle("Collega un agente in chat").setView(scroll)
                 .setPositiveButton("Chiudi", null).create();
         dialog.getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
         dialog.show();
     }
 
-    private String tailscaleAddressOrPlaceholder() {
-        try {
-            JSONObject status = McpForegroundService.transportStatus();
-            JSONObject endpoints = status.optJSONObject("endpoints");
-            JSONObject tailscale = endpoints == null ? null : endpoints.optJSONObject("tailscale");
-            String address = tailscale == null ? "" : tailscale.optString("address", "");
-            if (!address.isEmpty()) return "http://" + address + ":8765";
-        } catch (RuntimeException ignored) { }
-        return "http://100.x.y.z:8765";
+    private java.util.List<String> endpointUrls(JSONObject transport, String kind) {
+        java.util.ArrayList<String> out = new java.util.ArrayList<>();
+        JSONObject endpoints = transport == null ? null : transport.optJSONObject("endpoints");
+        JSONObject endpoint = endpoints == null ? null : endpoints.optJSONObject(kind);
+        if (endpoint != null && endpoint.optBoolean("available", false)) {
+            String address = endpoint.optString("address", "");
+            int port = endpoint.optInt("port", McpHttpServer.PORT);
+            if (!address.isEmpty()) out.add("http://" + address + ":" + port);
+        }
+        return out;
     }
     private void renderUpdateControls() {
         if (isDestroyed()) return;
