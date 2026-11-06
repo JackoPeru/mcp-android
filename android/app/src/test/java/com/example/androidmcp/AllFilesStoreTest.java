@@ -120,38 +120,59 @@ public final class AllFilesStoreTest {
         }
     }
 
+    /** Outside the store root: TemporaryFolder lives inside the root. */
+    private static java.nio.file.Path outsideRoot(String prefix) throws java.io.IOException {
+        return java.nio.file.Files.createTempDirectory(prefix);
+    }
+
+    private static void deleteTree(java.nio.file.Path root) {
+        try {
+            java.nio.file.Files.walk(root)
+                    .sorted(java.util.Comparator.reverseOrder())
+                    .forEach(p -> { try { java.nio.file.Files.deleteIfExists(p); } catch (Exception ignored) { } });
+        } catch (Exception ignored) { }
+    }
+
     @Test public void copyRefusesSymlinkEscape() throws Exception {
-        File outside = temporary.newFolder("outside");
-        java.nio.file.Files.write(outside.toPath().resolve("secret.txt"),
-                "top-secret".getBytes(StandardCharsets.UTF_8));
-        assertTrue(new File(temporary.getRoot(), "inner").mkdir());
-        assertTrue(new File(temporary.getRoot(), "dest").mkdir());
-        symlinkOrSkip(
-                temporary.getRoot().toPath().resolve("inner/link"),
-                outside.toPath());
-        Exception failure = assertThrows(ApiException.class,
-                () -> store.copy(AllFilesStore.ROOT_ID, "inner", "dest"));
-        assertEquals("WRITE_FAILED", codeOf(failure));
-        // Outside content untouched, nothing exfiltrated.
-        assertEquals("top-secret", new String(java.nio.file.Files.readAllBytes(
-                outside.toPath().resolve("secret.txt")), StandardCharsets.UTF_8));
-        assertFalse(new File(temporary.getRoot(), "dest/inner/link/secret.txt").exists());
+        java.nio.file.Path outside = outsideRoot("mcp-outside");
+        try {
+            java.nio.file.Files.write(outside.resolve("secret.txt"),
+                    "top-secret".getBytes(StandardCharsets.UTF_8));
+            assertTrue(new File(temporary.getRoot(), "inner").mkdir());
+            assertTrue(new File(temporary.getRoot(), "dest").mkdir());
+            symlinkOrSkip(
+                    temporary.getRoot().toPath().resolve("inner/link"),
+                    outside);
+            Exception failure = assertThrows(ApiException.class,
+                    () -> store.copy(AllFilesStore.ROOT_ID, "inner", "dest"));
+            assertEquals("WRITE_FAILED", codeOf(failure));
+            // Outside content untouched, nothing exfiltrated.
+            assertEquals("top-secret", new String(java.nio.file.Files.readAllBytes(
+                    outside.resolve("secret.txt")), StandardCharsets.UTF_8));
+            assertFalse(new File(temporary.getRoot(), "dest/inner/link/secret.txt").exists());
+        } finally {
+            deleteTree(outside);
+        }
     }
 
     @Test public void deleteUnlinksWithoutFollowing() throws Exception {
-        File outside = temporary.newFolder("outside2");
-        java.nio.file.Files.write(outside.toPath().resolve("keep.txt"),
-                "keep-me".getBytes(StandardCharsets.UTF_8));
-        assertTrue(new File(temporary.getRoot(), "inner2").mkdir());
-        symlinkOrSkip(
-                temporary.getRoot().toPath().resolve("inner2/link"),
-                outside.toPath());
-        // The tree is removed, the link is unlinked, outside content survives.
-        assertTrue(store.delete(AllFilesStore.ROOT_ID, "inner2").getBoolean("ok"));
-        assertFalse(new File(temporary.getRoot(), "inner2").exists());
-        assertEquals("keep-me", new String(java.nio.file.Files.readAllBytes(
-                outside.toPath().resolve("keep.txt")), StandardCharsets.UTF_8));
-        assertTrue(outside.toPath().resolve("keep.txt").toFile().exists());
+        java.nio.file.Path outside = outsideRoot("mcp-outside-keep");
+        try {
+            java.nio.file.Files.write(outside.resolve("keep.txt"),
+                    "keep-me".getBytes(StandardCharsets.UTF_8));
+            assertTrue(new File(temporary.getRoot(), "inner2").mkdir());
+            symlinkOrSkip(
+                    temporary.getRoot().toPath().resolve("inner2/link"),
+                    outside);
+            // The tree is removed, the link is unlinked, outside content survives.
+            assertTrue(store.delete(AllFilesStore.ROOT_ID, "inner2").getBoolean("ok"));
+            assertFalse(new File(temporary.getRoot(), "inner2").exists());
+            assertEquals("keep-me", new String(java.nio.file.Files.readAllBytes(
+                    outside.resolve("keep.txt")), StandardCharsets.UTF_8));
+            assertTrue(outside.resolve("keep.txt").toFile().exists());
+        } finally {
+            deleteTree(outside);
+        }
     }
 
     @Test public void symlinkInsideRootStillWorks() throws Exception {
