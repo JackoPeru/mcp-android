@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 // Auto-configurazione del collegamento agente <-> telefono Android.
 //
-// Uso (lo lancia l'agente, l'utente fornisce solo la key):
-//   node scripts/collega-telefono.mjs --key <64 caratteri hex>
-//   node scripts/collega-telefono.mjs --key <hex> --tailscale-url http://100.x.y.z:8765
-//   node scripts/collega-telefono.mjs --key <hex> --write-host auto   (scrive anche nel config del tuo client MCP)
+// Uso (lo lancia l'agente, l'utente fornisce solo la key via env):
+//   ANDROID_MCP_TOKEN=<64 hex> node scripts/collega-telefono.mjs
+//   ANDROID_MCP_TOKEN=<hex> node scripts/collega-telefono.mjs --tailscale-url http://100.x.y.z:8765
+//   ANDROID_MCP_TOKEN=<hex> node scripts/collega-telefono.mjs --write-host auto   (scrive anche nel config del tuo client MCP)
 //   node scripts/collega-telefono.mjs --check   (riverifica la config esistente)
+// (--key <hex> esiste ma è solo fallback: la key in argv finisce in shell history.
+//  Preferisci sempre la variabile d'ambiente.)
 // Uso (per l'utente: genera il messaggio già pronto da incollare all'agente):
 //   node scripts/collega-telefono.mjs --print-prompt [--key <hex>]
 //
@@ -20,6 +22,7 @@
 // La key non viene MAI stampata, loggata o committata: nei messaggi compare
 // solo mascherata (primi 4 + ultimi 4 caratteri). Il file generato
 // (default: mcp-config.android.json) e' in .gitignore.
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -127,6 +130,22 @@ function setNested(doc, shape, serverKey, entry) {
   return doc;
 }
 
+// Su Windows il mode 0600 di writeFileSync è un no-op (ACL ereditate dalla
+// cartella): restringiamo esplicitamente al solo utente corrente. Best-effort,
+// non deve mai rompere il setup: in caso di errore resta l'ACL ereditata e
+// l'output avvisa di limitare l'accesso alla cartella.
+export function restrictFileToOwner(filePath) {
+  if (process.platform !== 'win32') return true;
+  try {
+    execFileSync('icacls', [filePath, '/inheritance:r', '/grant:r',
+      `${process.env.USERNAME || process.env.USERPROFILE || 'CURRENT_USER'}:(R,W)`],
+    { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // Merge sicuro: backup .bak-<timestamp>, scrittura su tmp + rename atomico,
 // le altre entry restano intatte. Rifiuta JSON non oggetto (mai sovrascrivere alla cieca).
 export function mergeHostConfigFile(hostPath, shape, serverKey, entry) {
@@ -178,8 +197,8 @@ export function buildAgentPrompt({ key = null, serverKey = 'android' } = {}) {
     '',
     'SE TELEFONO E PC SONO SULLA STESSA WI-FI (il caso normale: niente IP da configurare):',
     '1. Controlla node >= 22 (node --version); se manca node_modules nella repo, lancia `npm ci --ignore-scripts`.',
-    '2. Esegui dalla root della repo:',
-    `     node scripts/collega-telefono.mjs --key ${shown} --write-host auto`,
+    '2. Esegui dalla root della repo, con la key in variabile d\u2019ambiente (mai in riga di comando):',
+    `     ANDROID_MCP_TOKEN=${shown} node scripts/collega-telefono.mjs --write-host auto`,
     '   Lo script trova il telefono da solo (discovery LAN + handshake), lo verifica',
     '   con una `status` reale, scrive mcp-config.android.json e fonde la entry nel',
     '   config del tuo host (backup .bak-timestamp, merge senza cancellare gli altri server).',
@@ -292,11 +311,13 @@ export async function main(argv = process.argv.slice(2), cwd = process.cwd()) {
   if (!args['dry-run']) {
     const status = await probeLive(config.mcpServers.android.env);
     writeConfigFile(outPath, config);
+    const lockedDown = restrictFileToOwner(outPath);
     const result = {
       ok: true,
       key: maskKey(key),
       out: outPath,
       via: status?.preferredTransport ?? 'unknown',
+      permsTightened: lockedDown,
     };
     if (writeHost) {
       const target = writeHost === 'auto'
@@ -308,6 +329,7 @@ export async function main(argv = process.argv.slice(2), cwd = process.cwd()) {
       result.host = target.host;
       result.hostPath = merged.path;
       result.hostBackup = merged.backup;
+      result.hostPermsTightened = restrictFileToOwner(merged.path);
     }
     return result;
   }
@@ -329,9 +351,17 @@ if (invokedAsScript) {
       }
       console.log(`OK: telefono raggiungibile via ${result.via ?? 'verifica saltata (dry-run)'}.`);
       console.log(`Config scritta in: ${result.out}`);
+      if (process.platform === 'win32' && result.permsTightened === false) {
+        console.log('Attenzione (Windows): impossibile restringere le ACL del file '
+          + 'alla sola utenza corrente; limita l\u2019accesso alla cartella che lo contiene.');
+      }
       if (result.hostPath) {
         console.log(`Host ${result.host ?? ''} aggiornato in: ${result.hostPath}`);
         if (result.hostBackup) console.log(`Backup precedente in: ${result.hostBackup}`);
+        if (process.platform === 'win32' && result.hostPermsTightened === false) {
+          console.log('Attenzione (Windows): ACL del config host non ristrette; '
+            + 'limita l\u2019accesso alla cartella del tuo client MCP.');
+        }
         console.log('Riavvia/ricarica il client MCP e chiama android_status.');
       } else {
         console.log('Prossimo passo: punta il tuo client MCP a questo file e chiama android_status.');

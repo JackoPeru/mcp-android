@@ -21,6 +21,21 @@ public final class CapabilityRouterTest {
         assertFalse(redacted.contains("sk-proj-"));
     }
 
+    @Test public void logRedactionRemovesNakedMcpTokenAndLabeledPins() {
+        String token = "b".repeat(64);
+        String input = "auth failed for token " + token + "\n"
+                + "user entered pin: 1234 ok\n"
+                + "otp=987654 verified\n"
+                + "pid 5678 at 12:34:56 uptime 90125";
+        String redacted = CapabilityRouter.redactLogText(input);
+        assertFalse(redacted.contains(token));
+        assertFalse(redacted.contains("1234"));
+        assertFalse(redacted.contains("987654"));
+        assertTrue(redacted.contains("pid 5678"));
+        assertTrue(redacted.contains("12:34:56"));
+        assertTrue(redacted.contains("pin"));
+    }
+
     @Test public void logRedactionRemovesGithubSlackGoogleAndPrivateKeys() {
         String input = "token ghp_abcdefghijklmnopqrstuvwxyz1234\n"
                 + "slack xoxb-123456789012-ABCDEFGHIJ\n"

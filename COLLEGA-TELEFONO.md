@@ -6,8 +6,9 @@
 > copia tutto e incollalo al tuo agente. Al resto pensa lui.
 >
 > Alternative: genera il messaggio al volo con un doppio clic su
-> **`stampa-prompt.cmd`** (oppure
-> `node scripts/collega-telefono.mjs --print-prompt [--key <64-hex>]`):
+> **`stampa-prompt.cmd`** (oppure, con la key in variabile d'ambiente per non
+> lasciarla nella shell history,
+> `ANDROID_MCP_TOKEN=<64 hex> node scripts/collega-telefono.mjs --print-prompt`):
 > stampa lo stesso testo, portabile su qualsiasi macchina.
 >
 > (Se l'agente ha accesso a questa repo, può anche caricare la procedura completa
@@ -15,9 +16,9 @@
 
 ---
 
-## 🤖 Messaggio generato (esempio: così appare l'output)
+## 🤖 Messaggio generato (forma; il testo copia-incollabile sta in `PROMPT-AGENTE.md`)
 
-Il testo esatto lo produce `--print-prompt` con i tuoi percorsi reali. La forma è questa:
+`--print-prompt` stampa il testo esatto e aggiornato. La forma è questa:
 
 ```
 Collegati al mio telefono Android via MCP (server "android").
@@ -32,8 +33,8 @@ Esegui tutto dalla root di quella repo, sulla TUA macchina (questo messaggio non
 
 SE TELEFONO E PC SONO SULLA STESSA WI-FI (il caso normale: niente IP da configurare):
 1. Controlla node >= 22 (node --version); se manca node_modules nella repo, lancia `npm ci --ignore-scripts`.
-2. Esegui dalla root della repo:
-     node scripts/collega-telefono.mjs --key INCOLLA_QUI_LA_KEY --write-host auto
+2. Esegui dalla root della repo, con la key in variabile d'ambiente (mai in riga di comando):
+     ANDROID_MCP_TOKEN=INCOLLA_QUI_LA_KEY node scripts/collega-telefono.mjs --write-host auto
    Lo script trova il telefono da solo (discovery LAN + handshake), lo verifica
    con una `status` reale, scrive mcp-config.android.json e fonde la entry nel
    config del tuo host (backup .bak-timestamp, merge senza cancellare gli altri server).

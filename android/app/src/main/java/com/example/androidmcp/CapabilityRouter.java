@@ -33,6 +33,17 @@ public final class CapabilityRouter {
             Pattern.compile("\\bAIza[A-Za-z0-9_-]{30,}\\b");
     private static final Pattern PRIVATE_KEY_BLOCK =
             Pattern.compile("-----BEGIN [A-Z ]*PRIVATE KEY-----[\\s\\S]*?-----END [A-Z ]*PRIVATE KEY-----");
+    // Naked MCP bearer (64 lowercase hex): any SHA-256-looking secret in
+    // logcat is over-redacted on purpose — logs are untrusted data anyway.
+    // Order matters: this runs before PIN patterns so a labeled 64-hex PIN
+    // is fully removed, not partially masked.
+    private static final Pattern HEX64_SECRET =
+            Pattern.compile("\\b[0-9a-f]{64}\\b");
+    // Labeled numeric secrets only ("pin: 1234", "passcode=987654"): a bare
+    // \d{4,16} would nuke PIDs, timestamps and counters, so the label is
+    // required. Keeps the label, masks just the digits.
+    private static final Pattern LABELED_PIN =
+            Pattern.compile("(?i)\\b(pin|passcode|otp)\\b[^0-9\\n]{0,12}(\\d{4,16})");
     private static final Set<String> LOG_LEVELS = Set.of("V", "D", "I", "W", "E", "F");
     // INVARIANT (JVM-tested in CapabilityRouterTest): privileged ops validate the
     // package with SecurityValidators.isValidPackageName and the log tag with
@@ -52,6 +63,8 @@ public final class CapabilityRouter {
         redacted = GITHUB_TOKEN.matcher(redacted).replaceAll("[REDACTED]");
         redacted = SLACK_TOKEN.matcher(redacted).replaceAll("[REDACTED]");
         redacted = GOOGLE_API_KEY.matcher(redacted).replaceAll("[REDACTED]");
+        redacted = HEX64_SECRET.matcher(redacted).replaceAll("[REDACTED]");
+        redacted = LABELED_PIN.matcher(redacted).replaceAll("$1[REDACTED]");
         return PRIVATE_KEY_BLOCK.matcher(redacted).replaceAll("[REDACTED PRIVATE KEY]");
     }
 

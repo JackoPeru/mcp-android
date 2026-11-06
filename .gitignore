@@ -19,6 +19,8 @@ google-services.json
 dist/*.apk
 dist/*.apk.sha256
 mcp-config.android.json
+mcp-config.ios.json
+*.bak-*
 dist-ios/
 
 .worktrees/

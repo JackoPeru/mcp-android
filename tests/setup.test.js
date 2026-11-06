@@ -14,6 +14,7 @@ import {
   mergeHostConfigFile,
   normalizeKey,
   resolveHostFile,
+  restrictFileToOwner,
   validateKey,
 } from '../scripts/collega-telefono.mjs';
 
@@ -171,6 +172,9 @@ test('buildAgentPrompt è portabile: niente percorsi assoluti, placeholder senza
   assert.ok(withKey.includes(KEY));
   assert.ok(withKey.includes('bridge/server.js'));
   assert.ok(withKey.includes('--write-host auto'));
+  // Env-first: la key non passa mai in argv (niente shell history).
+  assert.ok(withKey.includes(`ANDROID_MCP_TOKEN=${KEY} node scripts/collega-telefono.mjs`));
+  assert.ok(!withKey.includes('--key '));
   assert.ok(!withKey.includes(KEY_PLACEHOLDER));
   // Portabilità stile Desktop-AI: nessun path assoluto di chi genera.
   assertPortable(withKey);
@@ -201,7 +205,20 @@ test('main --print-prompt stampa senza rete né disco', async () => {
   assert.deepEqual(fs.readdirSync(dir), []);
 });
 
-test('file generato e prompt restano fuori da git', () => {
+test('restrictFileToOwner non rompe mai il setup', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-perms-'));
+  const file = path.join(dir, 'k.json');
+  fs.writeFileSync(file, '{}');
+  const ok = restrictFileToOwner(file);
+  assert.equal(typeof ok, 'boolean');
+  if (process.platform !== 'win32') assert.equal(ok, true);
+  // File integro in ogni caso: best-effort, mai distruttivo.
+  assert.equal(fs.readFileSync(file, 'utf8'), '{}');
+});
+
+test('file generato, backup e prompt restano fuori da git', () => {
   const gitignore = fs.readFileSync(new URL('../.gitignore', import.meta.url), 'utf8');
   assert.match(gitignore, /^mcp-config\.android\.json$/m);
+  assert.match(gitignore, /^mcp-config\.ios\.json$/m);
+  assert.match(gitignore, /^\*\.bak-\*$/m);
 });

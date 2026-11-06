@@ -16,8 +16,8 @@ Esegui tutto dalla root di quella repo, sulla TUA macchina (questo messaggio non
 
 SE TELEFONO E PC SONO SULLA STESSA WI-FI (il caso normale: niente IP da configurare):
 1. Controlla node >= 22 (node --version); se manca node_modules nella repo, lancia `npm ci --ignore-scripts`.
-2. Esegui dalla root della repo:
-     node scripts/collega-telefono.mjs --key INCOLLA_QUI_LA_KEY --write-host auto
+2. Esegui dalla root della repo, con la key in variabile d'ambiente (mai in riga di comando, per non lasciarla nelle shell history):
+     ANDROID_MCP_TOKEN=INCOLLA_QUI_LA_KEY node scripts/collega-telefono.mjs --write-host auto
    Lo script trova il telefono da solo (discovery LAN + handshake), lo verifica
    con una `status` reale, scrive mcp-config.android.json e fonde la entry nel
    config del tuo host (backup .bak-timestamp, merge senza cancellare gli altri server).

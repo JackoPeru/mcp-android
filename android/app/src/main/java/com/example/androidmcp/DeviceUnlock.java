@@ -63,6 +63,7 @@ public final class DeviceUnlock {
         PowerManager.WakeLock wake = wake(app);
         try {
             awaitInteractive(app, 5_000);
+            boolean pinAttempted = false;
             if (!secure) {
                 swipeUp(service);
             } else {
@@ -79,6 +80,7 @@ public final class DeviceUnlock {
                     try {
                         enterPin(service, pin, tapped);
                         lastError = null;
+                        pinAttempted = true;
                         break;
                     } catch (ApiException e) {
                         if (!"PIN_ENTRY_FAILED".equals(e.code)) throw e;
@@ -94,9 +96,17 @@ public final class DeviceUnlock {
                 DevicePinStore.clearFailures(app);
                 return done(true, secure ? "pin" : "swipe");
             }
-            // A verify timeout and a wrong PIN look identical here (still locked).
-            // Report a neutral UNLOCK_TIMEOUT without counting a PIN failure, so a
-            // slow keyguard cannot trigger WRONG_PIN lockout.
+            // A verify timeout and a wrong PIN look identical here (still locked),
+            // but only a fully entered PIN counts as a failure: broken OEM pads
+            // (PIN_ENTRY_FAILED above) and the swipe path never increment the
+            // lockout counter, so environment issues cannot lock the user out.
+            if (pinAttempted) {
+                DevicePinStore.noteFailure(app);
+                if (DevicePinStore.isLockedOut(app)) {
+                    throw new ApiException("PIN_LOCKED",
+                            "Too many wrong attempts: re-save the PIN in-app");
+                }
+            }
             throw new ApiException("UNLOCK_TIMEOUT", "Device still locked after one attempt");
         } finally {
             if (wake != null && wake.isHeld()) {

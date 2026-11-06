@@ -380,6 +380,53 @@ public final class AllFilesStore {
         return second.isEmpty() ? first : first + "/" + second;
     }
 
+    /**
+     * True for symlinks and other non-regular entries (NTFS junctions on
+     * Windows show up as {@code isOther}). The check is explicit and read
+     * with {@code NOFOLLOW_LINKS} because {@code getCanonicalFile()} does not
+     * resolve junctions on Windows, so the canonical containment check alone
+     * would miss them.
+     */
+    private static boolean isLink(File file) {
+        try {
+            java.nio.file.Path path = file.toPath();
+            if (java.nio.file.Files.isSymbolicLink(path)) return true;
+            return java.nio.file.Files.readAttributes(path,
+                    java.nio.file.attribute.BasicFileAttributes.class,
+                    java.nio.file.LinkOption.NOFOLLOW_LINKS).isOther();
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /** Real-path containment: resolves symlinks, junctions and bind mounts. */
+    private boolean isOutsideRoot(File file) {
+        try {
+            java.nio.file.Path realBase = base.toPath().toRealPath();
+            java.nio.file.Path real = file.toPath().toRealPath();
+            return !real.startsWith(realBase);
+        } catch (IOException e) {
+            return true;
+        }
+    }
+
+    /**
+     * Guard per ogni figlio: i link che escono dalla root vengono rifiutati
+     * (copy) o scollegati senza seguirli (delete). Il controllo canonicale
+     * resta come difesa in profondità per i casi non rilevati da isLink
+     * (es. bind mount su Linux).
+     */
+    private File confinedChild(File parent, String name) throws IOException {
+        File kid = new File(parent, name).getCanonicalFile();
+        if (isLink(new File(parent, name)) && isOutsideRoot(new File(parent, name))) {
+            throw new IOException("link escapes authorized root: " + name);
+        }
+        if (!isInsideBase(kid)) {
+            throw new IOException("link escapes authorized root: " + name);
+        }
+        return kid;
+    }
+
     private void copyRecursive(File source, File dest, int[] counter) throws IOException {
         if (source.isDirectory()) {
             if (!dest.mkdir()) throw new IOException("mkdir failed: " + dest);
@@ -389,7 +436,8 @@ public final class AllFilesStore {
                 if (++counter[0] > MAX_SEARCH_SCAN) {
                     throw new IOException("copy limit reached");
                 }
-                copyRecursive(kid, new File(dest, kid.getName()), counter);
+                copyRecursive(confinedChild(source, kid.getName()),
+                        new File(dest, kid.getName()), counter);
             }
             return;
         }
@@ -405,13 +453,25 @@ public final class AllFilesStore {
         }
     }
 
-    private static boolean deleteRecursive(File target, int[] counter) {
+    private boolean deleteRecursive(File target, int[] counter) {
         if (++counter[0] > MAX_SEARCH_SCAN) return false;
-        if (target.isDirectory()) {
+        if (target.isDirectory() && !java.nio.file.Files.isSymbolicLink(target.toPath())) {
             File[] kids = target.listFiles();
             if (kids == null) return false;
             for (File kid : kids) {
-                if (!deleteRecursive(kid, counter)) return false;
+                if (isLink(kid)) {
+                    // Unlink only: never follow a link (symlink, junction) into deletion.
+                    if (!kid.delete()) return false;
+                    continue;
+                }
+                final File confined;
+                try {
+                    confined = confinedChild(target, kid.getName());
+                } catch (IOException e) {
+                    // e.g. bind mount escaping the root.
+                    return false;
+                }
+                if (!deleteRecursive(confined, counter)) return false;
             }
         }
         return target.delete();

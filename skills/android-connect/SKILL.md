@@ -18,8 +18,11 @@ to reach it — the phone exposes both, you normally need nothing but the key:
 - Server key: `[NOME-SERVER, default: android]`
 - **A. Stessa Wi-Fi di telefono e PC (caso normale): zero IP da configurare.**
   Il bridge trova il telefono da solo con discovery UDP + handshake HMAC e
-  parla su TCP 8765 cifrato (AES-256-GCM). Ti basta la key:
-  `node scripts/collega-telefono.mjs --key <64-hex-dal-messaggio>`
+  parla su TCP 8765 cifrato (AES-256-GCM). Ti basta la key: esportala come
+  variabile d'ambiente (mai in riga di comando: finirebbe in shell history)
+  e lancia lo script senza argomenti sensibili:
+  `ANDROID_MCP_TOKEN=<64-hex-dal-messaggio> node scripts/collega-telefono.mjs`
+  (`--key <hex>` esiste ma è solo fallback: evita log di shell condivise).
   Lo script prova il telefono con una `status` reale e scrive
   `mcp-config.android.json` già pronto. Env risultante:
   `ANDROID_MCP_TOKEN=<key>`, `ANDROID_MCP_TRANSPORT=auto`,
@@ -57,8 +60,9 @@ absolute path from somewhere else:
 
 1. Figure out which agent host you are (Hermes, OpenClaw, Claude Desktop,
    Cursor, VS Code, Claude Code, Codex) from your own environment, not by asking.
-2. Probe + generate: run from the repo root
-   `node scripts/collega-telefono.mjs --key <key> [--tailscale-url ...] [--write-host <tuo-host>]`.
+2. Probe + generate: run from the repo root with the key in the environment
+   (never on the command line):
+   `ANDROID_MCP_TOKEN=<key> node scripts/collega-telefono.mjs [--tailscale-url ...] [--write-host <tuo-host>]`.
    With `--write-host` the script merges the `android` entry into your host
    config itself (backup `<stesso-nome>.bak-<timestamp>`, temp file + atomic
    rename, merge with existing servers, never delete other entries). Without

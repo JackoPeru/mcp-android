@@ -55,7 +55,7 @@ procedura completa per agenti in `skills/android-connect/SKILL.md`.
 
 L'updater interno è stato introdotto con la v0.6.0. Se sul telefono è installata una versione precedente che non contiene l'updater, installa manualmente una volta la release attuale; da quel momento le versioni successive possono essere rilevate dall'app.
 
-Il token è una credenziale: dalla schermata token usa **Copia negli appunti** e incollalo solo nella configurazione locale dell'agente. Non pubblicarlo, non inviarlo nelle conversazioni, non aggiungerlo a Git. Ruotandolo nell'app, la vecchia configurazione smette di autenticarsi.
+Il token è una credenziale: dalla schermata token usa **Copia negli appunti** e incollalo solo nella configurazione locale dell'agente. Sul telefono è conservato cifrato con Keystore (mai in chiaro). Non pubblicarlo, non inviarlo nelle conversazioni, non aggiungerlo a Git. Ruotandolo nell'app, la vecchia configurazione smette di autenticarsi.
 
 Mostrare il token o revocare una cartella ferma il servizio. Dopo aver completato la configurazione premi nuovamente **Avvia controllo remoto**. Al primo avvio Android può chiedere il permesso notifiche: concedilo e premi nuovamente Avvia.
 

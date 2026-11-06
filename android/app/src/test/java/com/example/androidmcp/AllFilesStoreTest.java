@@ -111,6 +111,68 @@ public final class AllFilesStoreTest {
                 () -> store.write(AllFilesStore.ROOT_ID, "ghost/f.bin", payload, 0, true, "application/octet-stream"))));
     }
 
+    private static java.nio.file.Path symlinkOrSkip(java.nio.file.Path link, java.nio.file.Path target) {
+        try {
+            return java.nio.file.Files.createSymbolicLink(link, target);
+        } catch (UnsupportedOperationException | SecurityException | java.io.IOException e) {
+            org.junit.Assume.assumeTrue("symlinks need privileges on this OS", false);
+            return null;
+        }
+    }
+
+    @Test public void copyRefusesSymlinkEscape() throws Exception {
+        File outside = temporary.newFolder("outside");
+        java.nio.file.Files.write(outside.toPath().resolve("secret.txt"),
+                "top-secret".getBytes(StandardCharsets.UTF_8));
+        assertTrue(new File(temporary.getRoot(), "inner").mkdir());
+        assertTrue(new File(temporary.getRoot(), "dest").mkdir());
+        symlinkOrSkip(
+                temporary.getRoot().toPath().resolve("inner/link"),
+                outside.toPath());
+        Exception failure = assertThrows(ApiException.class,
+                () -> store.copy(AllFilesStore.ROOT_ID, "inner", "dest"));
+        assertEquals("WRITE_FAILED", codeOf(failure));
+        // Outside content untouched, nothing exfiltrated.
+        assertEquals("top-secret", new String(java.nio.file.Files.readAllBytes(
+                outside.toPath().resolve("secret.txt")), StandardCharsets.UTF_8));
+        assertFalse(new File(temporary.getRoot(), "dest/inner/link/secret.txt").exists());
+    }
+
+    @Test public void deleteUnlinksWithoutFollowing() throws Exception {
+        File outside = temporary.newFolder("outside2");
+        java.nio.file.Files.write(outside.toPath().resolve("keep.txt"),
+                "keep-me".getBytes(StandardCharsets.UTF_8));
+        assertTrue(new File(temporary.getRoot(), "inner2").mkdir());
+        symlinkOrSkip(
+                temporary.getRoot().toPath().resolve("inner2/link"),
+                outside.toPath());
+        // The tree is removed, the link is unlinked, outside content survives.
+        assertTrue(store.delete(AllFilesStore.ROOT_ID, "inner2").getBoolean("ok"));
+        assertFalse(new File(temporary.getRoot(), "inner2").exists());
+        assertEquals("keep-me", new String(java.nio.file.Files.readAllBytes(
+                outside.toPath().resolve("keep.txt")), StandardCharsets.UTF_8));
+        assertTrue(outside.toPath().resolve("keep.txt").toFile().exists());
+    }
+
+    @Test public void symlinkInsideRootStillWorks() throws Exception {
+        assertTrue(new File(temporary.getRoot(), "real").mkdir());
+        java.nio.file.Files.write(temporary.getRoot().toPath().resolve("real/f.txt"),
+                "in-root".getBytes(StandardCharsets.UTF_8));
+        assertTrue(new File(temporary.getRoot(), "inner3").mkdir());
+        assertTrue(new File(temporary.getRoot(), "dest3").mkdir());
+        symlinkOrSkip(
+                temporary.getRoot().toPath().resolve("inner3/link"),
+                temporary.getRoot().toPath().resolve("real"));
+        assertTrue(store.copy(AllFilesStore.ROOT_ID, "inner3", "dest3").getBoolean("ok"));
+        JSONObject read = store.read(AllFilesStore.ROOT_ID, "dest3/inner3/link/f.txt", 0, 256);
+        assertEquals("in-root", new String(java.util.Base64.getDecoder()
+                .decode(read.getString("data")), StandardCharsets.UTF_8));
+        assertTrue(store.delete(AllFilesStore.ROOT_ID, "dest3").getBoolean("ok"));
+        // Source tree intact after deleting the copy.
+        assertEquals("in-root", new String(java.nio.file.Files.readAllBytes(
+                temporary.getRoot().toPath().resolve("real/f.txt")), StandardCharsets.UTF_8));
+    }
+
     @Test public void paginationShapeMatchesSaf() throws Exception {
         assertTrue(store.mkdir(AllFilesStore.ROOT_ID, "p").getBoolean("ok"));
         String payload = java.util.Base64.getEncoder().encodeToString("x".getBytes(StandardCharsets.UTF_8));
