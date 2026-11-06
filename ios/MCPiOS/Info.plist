@@ -5,8 +5,8 @@
   <key>CFBundleName</key><string>MCP iOS</string>
   <key>CFBundleDisplayName</key><string>MCP iOS</string>
   <key>CFBundleIdentifier</key><string>com.example.mcpios</string>
-  <key>CFBundleShortVersionString</key><string>0.8.24</string>
-  <key>CFBundleVersion</key><string>35</string>
+  <key>CFBundleShortVersionString</key><string>0.8.25</string>
+  <key>CFBundleVersion</key><string>36</string>
   <key>UILaunchStoryboardName</key><string></string>
   <key>UISupportedInterfaceOrientations</key>
   <array><string>UIInterfaceOrientationPortrait</string></array>

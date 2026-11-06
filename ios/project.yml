@@ -30,8 +30,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.example.mcpios
-        MARKETING_VERSION: 0.8.24
-        CURRENT_PROJECT_VERSION: 35
+        MARKETING_VERSION: 0.8.25
+        CURRENT_PROJECT_VERSION: 36
         SWIFT_VERSION: 5.9
         IPHONEOS_DEPLOYMENT_TARGET: 17.0
   MCPiOSTests:
