@@ -94,6 +94,19 @@ public final class CapabilityRouter {
             features.put("webviewDetection", McpAccessibilityService.active() != null);
             features.put("webviewInspection", false);
             features.put("visualFallbackHooks", true);
+            features.put("camera", CameraController.hasPermission(context));
+            features.put("microphone", AudioController.hasPermission(context));
+            features.put("screenRecording", true);
+            features.put("sms", SmsController.canSend(context));
+            features.put("smsInbox", SmsController.canRead(context));
+            features.put("calls", CallController.canCall(context));
+            features.put("contacts", ContactsController.canRead(context));
+            features.put("location", LocationController.hasPermission(context));
+            features.put("torch", CameraController.hasPermission(context));
+            features.put("tts", true);
+            features.put("alarms", true);
+            features.put("healthConnect", healthAvailable(context));
+            features.put("relay", RelayConfig.isEnabled(context) && RelayConfig.isConfigured(context));
 
             result.put("accessibility", McpAccessibilityService.active() != null);
             result.put("notificationListener", McpNotificationService.active() != null);
@@ -127,11 +140,62 @@ public final class CapabilityRouter {
                     .put("shizuku", new JSONObject()
                             .put("backend", "shizuku")
                             .put("permission", "explicit Shizuku app grant")
-                            .put("available", shizukuAuthorized)));
+                            .put("available", shizukuAuthorized))
+                    .put("camera", new JSONObject()
+                            .put("backend", "camerax")
+                            .put("permission", "CAMERA")
+                            .put("available", CameraController.hasPermission(context))
+                            .put("visibleCapture", true))
+                    .put("microphone", new JSONObject()
+                            .put("backend", "mediarecorder")
+                            .put("permission", "RECORD_AUDIO")
+                            .put("available", AudioController.hasPermission(context))
+                            .put("foregroundService", true))
+                    .put("screenRecording", new JSONObject()
+                            .put("backend", "mediaprojection")
+                            .put("permission", "system consent per session")
+                            .put("available", true))
+                    .put("sms", new JSONObject()
+                            .put("backend", "SmsManager")
+                            .put("permission", "SEND_SMS")
+                            .put("available", SmsController.canSend(context))
+                            .put("userConfirmation", true))
+                    .put("calls", new JSONObject()
+                            .put("backend", "Telecom")
+                            .put("permission", "CALL_PHONE")
+                            .put("available", CallController.canCall(context))
+                            .put("userConfirmation", true))
+                    .put("contacts", new JSONObject()
+                            .put("backend", "ContactsContract")
+                            .put("permission", "READ_CONTACTS")
+                            .put("available", ContactsController.canRead(context)))
+                    .put("location", new JSONObject()
+                            .put("backend", "LocationManager")
+                            .put("permission", "ACCESS_FINE_LOCATION")
+                            .put("available", LocationController.hasPermission(context)))
+                    .put("healthConnect", new JSONObject()
+                            .put("backend", "androidx.health.connect")
+                            .put("permission", "per-type READ permissions")
+                            .put("available", healthAvailable(context))
+                            .put("readOnly", true))
+                    .put("relay", new JSONObject()
+                            .put("backend", "self-hosted TLS relay")
+                            .put("permission", "pairing secret + MCP token")
+                            .put("available", RelayConfig.isEnabled(context) && RelayConfig.isConfigured(context))
+                            .put("e2e", true)));
             result.put("operationClasses", operationClasses());
             return result;
         } catch (JSONException e) {
             throw new ApiException("INTERNAL", "Unable to encode capabilities");
+        }
+    }
+
+    private static boolean healthAvailable(Context context) {
+        try {
+            return androidx.health.connect.client.HealthConnectClient.Companion.sdkStatus(context)
+                    == androidx.health.connect.client.HealthConnectClient.Companion.SDK_AVAILABLE;
+        } catch (RuntimeException e) {
+            return false;
         }
     }
 

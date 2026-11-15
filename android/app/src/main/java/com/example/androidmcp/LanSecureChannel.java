@@ -22,6 +22,12 @@ public final class LanSecureChannel {
     public static final String PROTOCOL = "mcp-android-lan-channel";
     public static final int VERSION = 1;
     private static final String DOMAIN = "mcp-android-lan-channel-v1";
+    /**
+     * Separate domain for the relay transport: keys, AAD and envelope never
+     * match the LAN ones, so a capture from one transport cannot be replayed
+     * on the other even with the same MCP token.
+     */
+    public static final String RELAY_DOMAIN = "mcp-android-relay-v1";
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private LanSecureChannel() { }
@@ -63,9 +69,22 @@ public final class LanSecureChannel {
         if (replayGuard != null && replayGuard.alreadySeen(nonce)) {
             throw new IllegalArgumentException("LAN request replay rejected");
         }
-        JSONObject result = decrypt(token, session, "request", envelope);
+        JSONObject result = decrypt(token, session, "request", envelope, DOMAIN);
         if (replayGuard != null && !replayGuard.accept(nonce)) {
             throw new IllegalArgumentException("LAN request replay rejected");
+        }
+        return result;
+    }
+
+    public static JSONObject decryptRequest(String token, String session, JSONObject envelope,
+                                            ReplayGuard replayGuard, String domain) {
+        String nonce = envelope == null ? "" : envelope.optString("nonce", "");
+        if (replayGuard != null && replayGuard.alreadySeen(nonce)) {
+            throw new IllegalArgumentException("Relay request replay rejected");
+        }
+        JSONObject result = decrypt(token, session, "request", envelope, domain);
+        if (replayGuard != null && !replayGuard.accept(nonce)) {
+            throw new IllegalArgumentException("Relay request replay rejected");
         }
         return result;
     }
@@ -73,24 +92,47 @@ public final class LanSecureChannel {
     public static JSONObject encryptResponse(String token, String session, JSONObject payload) {
         byte[] nonce = new byte[12];
         RANDOM.nextBytes(nonce);
-        return encrypt(token, session, "response", payload, hex(nonce));
+        return encrypt(token, session, "response", payload, hex(nonce), DOMAIN);
     }
 
     static JSONObject encryptResponse(String token, String session, JSONObject payload, String nonceHex) {
-        return encrypt(token, session, "response", payload, nonceHex);
+        return encrypt(token, session, "response", payload, nonceHex, DOMAIN);
+    }
+
+    /** Domain-parameterised response encryption (relay transport). */
+    public static JSONObject encryptResponseDomain(String token, String session, JSONObject payload,
+                                                   String domain) {
+        byte[] nonce = new byte[12];
+        RANDOM.nextBytes(nonce);
+        return encrypt(token, session, "response", payload, hex(nonce), domain);
+    }
+
+    public static JSONObject encryptRequest(String token, String session, JSONObject payload, String domain) {
+        byte[] nonce = new byte[12];
+        RANDOM.nextBytes(nonce);
+        return encrypt(token, session, "request", payload, hex(nonce), domain);
+    }
+
+    public static JSONObject decryptResponse(String token, String session, JSONObject envelope, String domain) {
+        return decrypt(token, session, "response", envelope, domain);
     }
 
     private static JSONObject encrypt(String token, String session, String direction,
                                       JSONObject payload, String nonceHex) {
+        return encrypt(token, session, direction, payload, nonceHex, DOMAIN);
+    }
+
+    private static JSONObject encrypt(String token, String session, String direction,
+                                      JSONObject payload, String nonceHex, String domain) {
         validateToken(token);
         validateSession(session);
         validateNonce(nonceHex);
         try {
             Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
             cipher.init(Cipher.ENCRYPT_MODE,
-                    new SecretKeySpec(deriveKey(token, session, direction), "AES"),
+                    new SecretKeySpec(deriveKey(token, session, direction, domain), "AES"),
                     new GCMParameterSpec(128, hexBytes(nonceHex)));
-            cipher.updateAAD(aad(direction, session));
+            cipher.updateAAD(aad(direction, session, domain));
             byte[] ciphertext = cipher.doFinal(payload.toString().getBytes(StandardCharsets.UTF_8));
             return new JSONObject()
                     .put("version", VERSION)
@@ -102,7 +144,8 @@ public final class LanSecureChannel {
         }
     }
 
-    private static JSONObject decrypt(String token, String session, String direction, JSONObject envelope) {
+    private static JSONObject decrypt(String token, String session, String direction,
+                                      JSONObject envelope, String domain) {
         validateToken(token);
         validateSession(session);
         if (envelope == null || envelope.length() != 4
@@ -124,9 +167,9 @@ public final class LanSecureChannel {
             if (ciphertext.length < 17) throw new IllegalArgumentException("Invalid LAN channel envelope");
             Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
             cipher.init(Cipher.DECRYPT_MODE,
-                    new SecretKeySpec(deriveKey(token, session, direction), "AES"),
+                    new SecretKeySpec(deriveKey(token, session, direction, domain), "AES"),
                     new GCMParameterSpec(128, hexBytes(nonceHex)));
-            cipher.updateAAD(aad(direction, session));
+            cipher.updateAAD(aad(direction, session, domain));
             byte[] plaintext = cipher.doFinal(ciphertext);
             return parseObject(plaintext);
         } catch (JSONException | GeneralSecurityException | IllegalArgumentException e) {
@@ -150,18 +193,19 @@ public final class LanSecureChannel {
         }
     }
 
-    private static byte[] deriveKey(String token, String session, String direction) {
+    private static byte[] deriveKey(String token, String session, String direction, String domain) {
         if (!"request".equals(direction) && !"response".equals(direction)) {
             throw new IllegalArgumentException("Invalid LAN channel direction");
         }
-        return hmac(token, DOMAIN + "\n" + session + "\n" + direction);
+        if (domain == null || domain.isEmpty()) throw new IllegalArgumentException("Invalid channel domain");
+        return hmac(token, domain + "\n" + session + "\n" + direction);
     }
 
-    private static byte[] aad(String direction, String session) {
+    private static byte[] aad(String direction, String session, String domain) {
         if (!"request".equals(direction) && !"response".equals(direction)) {
             throw new IllegalArgumentException("Invalid LAN channel direction");
         }
-        return (DOMAIN + "\n" + direction + "\n" + session).getBytes(StandardCharsets.UTF_8);
+        return (domain + "\n" + direction + "\n" + session).getBytes(StandardCharsets.UTF_8);
     }
 
     private static String hmacHex(String token, String material) {

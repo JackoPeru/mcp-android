@@ -43,12 +43,12 @@ public final class MainActivity extends Activity {
     private UiKit ui;
     private FileRootStore roots;
     private final Handler handler = new Handler(android.os.Looper.getMainLooper());
-    private final ScrollView[] pages = new ScrollView[3];
-    private final LinearLayout[] tabs = new LinearLayout[3];
-    private final TextView[] tabLabels = new TextView[3];
-    private final FrameLayout[] tabIcons = new FrameLayout[3];
-    private final String[] tabNames = {"Panoramica", "Accessi", "Impostazioni"};
-    private final String[] tabSymbols = {"home", "shield", "settings"};
+    private final ScrollView[] pages = new ScrollView[4];
+    private final LinearLayout[] tabs = new LinearLayout[4];
+    private final TextView[] tabLabels = new TextView[4];
+    private final FrameLayout[] tabIcons = new FrameLayout[4];
+    private final String[] tabNames = {"Panoramica", "Accessi", "Funzioni", "Impostazioni"};
+    private final String[] tabSymbols = {"home", "shield", "phone", "settings"};
     private int selectedTab;
     private boolean advancedExpanded, startAfterPermission, accessibilityAllowed, notificationsAllowed;
     private int rootCount;
@@ -117,7 +117,8 @@ public final class MainActivity extends Activity {
         getWindow().getDecorView().setSystemUiVisibility(0);
         ui = new UiKit(this);
         roots = new FileRootStore(this);
-        selectedTab = state == null ? 0 : Math.max(0, Math.min(2, state.getInt("ui.tab", 0)));
+        selectedTab = state == null ? 0
+                : Math.max(0, Math.min(tabNames.length - 1, state.getInt("ui.tab", 0)));
         advancedExpanded = state != null && state.getBoolean("ui.advanced", false);
         startAfterPermission = state != null && state.getBoolean("ui.pendingStart", false);
         LinearLayout shell = ui.column(); shell.setBackgroundColor(UiKit.BG);
@@ -132,8 +133,9 @@ public final class MainActivity extends Activity {
         shell.addView(content, new LinearLayout.LayoutParams(-1, 0, 1));
         LinearLayout overview = page(content, 0, R.id.ui_overview_scroll);
         LinearLayout access = page(content, 1, R.id.ui_access_scroll);
-        LinearLayout settings = page(content, 2, R.id.ui_settings_scroll);
-        buildOverview(overview); buildAccess(access); buildSettings(settings);
+        LinearLayout features = page(content, 2, R.id.ui_features_scroll);
+        LinearLayout settings = page(content, 3, R.id.ui_settings_scroll);
+        buildOverview(overview); buildAccess(access); buildFeatures(features); buildSettings(settings);
         shell.addView(bottomBar(), new LinearLayout.LayoutParams(-1, -2));
         showTab(selectedTab);
     }
@@ -282,6 +284,167 @@ public final class MainActivity extends Activity {
         renderAdvanced();
     }
 
+    private TextView captureStatus, healthStatusLabel, relayStatusLabel;
+
+    private void buildFeatures(LinearLayout body) {
+        pageHeading(body, "Funzioni", "Fotocamera, audio, schermo e telefono.\nSempre visibili, sempre interrompibili.");
+        LinearLayout capture = ui.card(body);
+        ui.heading(capture, "phone", "Acquisizione", "Ogni cattura apre una schermata dedicata e un avviso persistente. Arresta tutto con un tocco.");
+        captureStatus = ui.text("", 13, UiKit.MUTED, false); ui.add(capture, captureStatus, 12);
+        ui.add(capture, ui.button("Scatta una foto", true, () -> safely(() ->
+                startActivity(new Intent(this, CameraCaptureActivity.class)
+                        .putExtra("lens", "back").putExtra("flash", "auto")
+                        .putExtra("maxWidth", 0).putExtra("quality", 90)))), 14);
+        ui.add(capture, ui.button("Registra audio", false, () -> safely(() ->
+                startActivity(new Intent(this, AudioCaptureActivity.class)
+                        .putExtra("ext", "m4a").putExtra("maxDurationMs", 60_000L)
+                        .putExtra("bitrate", 96_000)))), 12);
+        ui.add(capture, ui.button("Registra schermo", false, () -> safely(() ->
+                startActivity(new Intent(this, ScreenRecordActivity.class)
+                        .putExtra("fps", 30).putExtra("bitrate", 4_000_000)
+                        .putExtra("maxLongEdge", 1280).putExtra("maxDurationMs", 60_000L)))), 12);
+        ui.add(capture, ui.button("Arresta fotocamera, audio e schermo", true, () -> safely(() -> {
+            AudioController.forceStop(this);
+            ScreenRecordController.forceStop(this);
+            try { CameraController.torch(this, false); } catch (ApiException ignored) { }
+            refreshFeatureStatus();
+            toast("Acquisizioni arrestate.");
+        })), 14);
+
+        LinearLayout permissionsCard = ui.card(body);
+        ui.heading(permissionsCard, "shield", "Permessi", "Concedi solo ciò che ti serve, quando ti serve.");
+        ui.add(permissionsCard, ui.button("Fotocamera", false, () ->
+                requestOne(Manifest.permission.CAMERA, 50)), 12);
+        ui.add(permissionsCard, ui.button("Microfono", false, () ->
+                requestOne(Manifest.permission.RECORD_AUDIO, 51)), 10);
+        ui.add(permissionsCard, ui.button("Posizione", false, () ->
+                requestOne(Manifest.permission.ACCESS_FINE_LOCATION, 52)), 10);
+        ui.add(permissionsCard, ui.button("Contatti", false, () ->
+                requestOne(Manifest.permission.READ_CONTACTS, 53)), 10);
+        ui.add(permissionsCard, ui.button("SMS (invio e lettura)", false, () ->
+                requestPermissions(new String[]{Manifest.permission.SEND_SMS,
+                        Manifest.permission.READ_SMS}, 54)), 10);
+        ui.add(permissionsCard, ui.button("Telefono (chiamate)", false, () ->
+                requestOne(Manifest.permission.CALL_PHONE, 55)), 10);
+
+        LinearLayout health = ui.card(body);
+        ui.heading(health, "shield", "Health Connect", "Sola lettura, permessi per categoria. Nessun dato sanitario viene salvato nei log.");
+        healthStatusLabel = ui.text("", 13, UiKit.MUTED, false); ui.add(health, healthStatusLabel, 12);
+        ui.add(health, ui.button("Autorizza Health Connect", false, () -> safely(() -> {
+            java.util.List<String> types = HealthController.supportedTypes();
+            String[] permissions = new String[types.size()];
+            for (int i = 0; i < types.size(); i++) {
+                permissions[i] = HealthController.readPermission(types.get(i));
+            }
+            startActivity(new Intent(this, HealthConnectActivity.class)
+                    .putExtra("permissions", permissions));
+        })), 12);
+
+        LinearLayout relay = ui.card(body);
+        ui.heading(relay, "remote", "Relay self-hosted", "Collegamento in uscita via TLS: funziona dietro NAT, senza Tailscale. I comandi restano cifrati end-to-end.");
+        relayStatusLabel = ui.text("", 13, UiKit.MUTED, false); ui.add(relay, relayStatusLabel, 12);
+        EditText relayUrl = new EditText(this);
+        relayUrl.setHint("tls://relay.example.com:9443");
+        relayUrl.setText(RelayConfig.url(this));
+        relayUrl.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+        relayUrl.setSaveEnabled(false);
+        ui.add(relay, relayUrl, 12);
+        EditText relayRoom = new EditText(this);
+        relayRoom.setHint("room (8-64 caratteri)");
+        relayRoom.setText(RelayConfig.room(this));
+        relayRoom.setSaveEnabled(false);
+        ui.add(relay, relayRoom, 10);
+        EditText relaySecret = new EditText(this);
+        relaySecret.setHint("pairing secret (64 hex)");
+        relaySecret.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        relaySecret.setSaveEnabled(false);
+        ui.add(relay, relaySecret, 10);
+        CheckBox relayOn = new CheckBox(this);
+        relayOn.setText("Attiva relay");
+        relayOn.setChecked(RelayConfig.isEnabled(this));
+        ui.add(relay, relayOn, 10);
+        ui.add(relay, ui.button("Salva impostazioni relay", true, () -> safely(() -> {
+            String url = relayUrl.getText().toString().trim();
+            String room = relayRoom.getText().toString().trim();
+            String secret = relaySecret.getText().toString().trim();
+            boolean enabled = relayOn.isChecked();
+            if (enabled && !RelayConfig.isValidUrl(url)) {
+                dialog("Relay non valido", "L'URL deve essere tls://host:porta (TLS obbligatorio).");
+                return;
+            }
+            if (enabled && !RelayConfig.isValidRoom(room)) {
+                dialog("Relay non valido", "La room deve avere 8-64 caratteri tra A-Z, a-z, 0-9, _ e -.");
+                return;
+            }
+            if (enabled && !RelayConfig.isValidSecret(secret)) {
+                dialog("Relay non valido", "Il pairing secret deve essere di 64 caratteri esadecimali, condiviso con il relay.");
+                return;
+            }
+            RelayConfig.save(this, enabled, url, room, secret);
+            relaySecret.setText("");
+            RelayClient.stop(this);
+            if (enabled) RelayClient.start(this);
+            refreshFeatureStatus();
+            toast(enabled ? "Relay attivato." : "Relay disattivato.");
+        })), 12);
+
+        TextView footer = ui.text("LE ACQUISIZIONI SONO VISIBILI E INTERROMPIBILI", 10, UiKit.MUTED, true);
+        footer.setLetterSpacing(.08f); footer.setGravity(Gravity.CENTER); ui.add(body, footer, 24);
+    }
+
+    private void requestOne(String permission, int requestCode) {
+        if (checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED) {
+            toast("Permesso già concesso.");
+            return;
+        }
+        requestPermissions(new String[]{permission}, requestCode);
+    }
+
+    private void refreshFeatureStatus() {
+        if (captureStatus == null) return;
+        try {
+            captureStatus.setText("Fotocamera: " + (CameraController.hasPermission(this) ? "pronta" : "da autorizzare")
+                    + " · Microfono: " + (AudioController.hasPermission(this) ? "pronto" : "da autorizzare")
+                    + "\nAudio: " + AudioController.state + " · Schermo: " + ScreenRecordController.state
+                    + "\nPosizione: " + (LocationController.hasPermission(this) ? "ok" : "da autorizzare")
+                    + " · Contatti: " + (ContactsController.canRead(this) ? "ok" : "da autorizzare")
+                    + " · SMS: " + (SmsController.canSend(this) ? "ok" : "da autorizzare")
+                    + " · Chiamate: " + (CallController.canCall(this) ? "ok" : "da autorizzare"));
+        } catch (RuntimeException ignored) { }
+        if (healthStatusLabel != null) {
+            // Health Connect is an IPC call: never block the UI thread on it.
+            final TextView label = healthStatusLabel;
+            new Thread(() -> {
+                String text;
+                try {
+                    JSONObject health = HealthController.status(this);
+                    text = health.optBoolean("available", false)
+                            ? "Health Connect: " + (health.optJSONArray("granted") == null
+                            ? 0 : health.optJSONArray("granted").length()) + " categorie autorizzate"
+                            : "Health Connect: non disponibile (" + health.optString("reason", "") + ")";
+                } catch (ApiException e) {
+                    text = "Health Connect: non disponibile";
+                }
+                final String result = text;
+                runOnUiThread(() -> {
+                    if (!isFinishing() && !isDestroyed()) label.setText(result);
+                });
+            }, "mcp-health-status").start();
+        }
+        if (relayStatusLabel != null) {
+            try {
+                JSONObject relay = RelayConfig.describe(this);
+                relayStatusLabel.setText(relay.optBoolean("enabled", false)
+                        ? "Relay: " + relay.optString("state", "disabled")
+                        + (relay.optBoolean("connected", false) ? " (connesso)" : "")
+                        + (relay.optString("lastError", "").isEmpty() ? "" : " · " + relay.optString("lastError"))
+                        : "Relay: disattivato");
+            } catch (ApiException e) {
+                relayStatusLabel.setText("Relay: stato non disponibile");
+            }
+        }
+    }
+
     private void buildSettings(LinearLayout body) {
         pageHeading(body, "Tutto al suo posto", "Collega il tuo agente e mantieni\nl'app pronta per quando serve.");
         LinearLayout pairing = ui.card(body);
@@ -392,7 +555,7 @@ public final class MainActivity extends Activity {
 
     private View bottomBar() {
         LinearLayout nav = ui.row(); nav.setPadding(ui.dp(14), ui.dp(8), ui.dp(14), ui.dp(10)); nav.setBackgroundColor(UiKit.BG);
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < tabNames.length; i++) {
             final int index = i;
             LinearLayout item = ui.column(); item.setGravity(Gravity.CENTER); item.setPadding(ui.dp(4), ui.dp(10), ui.dp(4), ui.dp(10)); item.setMinimumHeight(ui.dp(68));
             item.setFocusable(true); item.setContentDescription(tabNames[i]); buttonSemantics(item);
@@ -407,7 +570,7 @@ public final class MainActivity extends Activity {
 
     private void showTab(int index) {
         selectedTab = index;
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < tabNames.length; i++) {
             boolean selected = i == index;
             pages[i].setVisibility(selected ? View.VISIBLE : View.GONE);
             tabs[i].setSelected(selected); tabs[i].setBackground(ui.ripple(selected ? UiKit.SOFT : UiKit.BG, 0, 18));
@@ -788,13 +951,18 @@ public final class MainActivity extends Activity {
                             + "La shell resta opzionale: schermo e file funzionano senza.");
         }
         refreshPermissions();
+        refreshFeatureStatus();
     }
     @Override protected void onSaveInstanceState(Bundle state) {
         state.putInt("ui.tab", selectedTab); state.putBoolean("ui.advanced", advancedExpanded); state.putBoolean("ui.pendingStart", startAfterPermission);
         super.onSaveInstanceState(state);
     }
     @Override protected void onResume() {
-        super.onResume(); refreshRoots(); refreshPermissions(); refreshPinBadge(); refreshLockedAccess(); handler.removeCallbacks(refreshStatus); handler.post(refreshStatus);
+        super.onResume(); refreshRoots(); refreshPermissions(); refreshPinBadge(); refreshLockedAccess();
+        refreshFeatureStatus();
+        if (RelayConfig.isEnabled(this) && RelayConfig.isConfigured(this)) RelayClient.start(this);
+        else RelayClient.stop(this);
+        handler.removeCallbacks(refreshStatus); handler.post(refreshStatus);
         UpdateManager.check(this, false, updateCallback);
     }
 

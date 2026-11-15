@@ -12,7 +12,8 @@ export function readConfig(env = process.env) {
   const token = env.ANDROID_MCP_TOKEN ?? '';
   if (!/^[a-f0-9]{64}$/.test(token)) throw new Error('ANDROID_MCP_TOKEN must contain the 64 hex characters shown by the phone.');
   const preference = (env.ANDROID_MCP_TRANSPORT ?? 'auto').toLowerCase();
-  if (!['auto', 'lan', 'tailscale'].includes(preference)) throw new Error('ANDROID_MCP_TRANSPORT must be auto, lan, or tailscale.');
+  if (!['auto', 'lan', 'tailscale', 'relay'].includes(preference)) throw new Error('ANDROID_MCP_TRANSPORT must be auto, lan, tailscale, or relay.');
+  const relay = readRelayConfig(env);
   const discoveryRaw = (env.ANDROID_MCP_DISCOVERY ?? 'true').toLowerCase();
   if (!['true', 'false', '1', '0'].includes(discoveryRaw)) throw new Error('ANDROID_MCP_DISCOVERY must be true/false or 1/0.');
   const discovery = discoveryRaw === 'true' || discoveryRaw === '1';
@@ -23,12 +24,35 @@ export function readConfig(env = process.env) {
   const tailscaleUrl = tailscaleRaw ? validateTailscaleOrigin(tailscaleRaw) : null;
 
   if (legacyRaw && !lanRaw && !env.ANDROID_MCP_TAILSCALE_URL && env.ANDROID_MCP_TRANSPORT === undefined) {
-    return { url: tailscaleUrl, token, preference: 'tailscale', lanUrl: null, tailscaleUrl, discovery: false };
+    return { url: tailscaleUrl, token, preference: 'tailscale', lanUrl: null, tailscaleUrl, discovery: false, relay };
   }
   if (preference === 'tailscale' && !tailscaleUrl) throw new Error('Tailscale transport requires ANDROID_MCP_TAILSCALE_URL or ANDROID_MCP_URL.');
   if (preference === 'lan' && !lanUrl && !discovery) throw new Error('LAN transport requires a LAN URL or discovery.');
-  if (preference === 'auto' && !lanUrl && !tailscaleUrl && !discovery) throw new Error('No Android MCP transport configured.');
-  return { token, preference, lanUrl, tailscaleUrl, discovery };
+  if (preference === 'relay' && !relay) throw new Error('Relay transport requires ANDROID_MCP_RELAY_URL, ANDROID_MCP_RELAY_ROOM and ANDROID_MCP_RELAY_SECRET.');
+  if (preference === 'auto' && !lanUrl && !tailscaleUrl && !discovery && !relay) throw new Error('No Android MCP transport configured.');
+  return { token, preference, lanUrl, tailscaleUrl, discovery, relay };
+}
+
+/**
+ * Optional self-hosted relay. The MCP token never reaches the relay: TLS is
+ * mandatory (tls://) and the pairing secret authenticates both peers, while
+ * RPC payloads stay end-to-end encrypted with the token.
+ */
+export function readRelayConfig(env = process.env) {
+  const url = (env.ANDROID_MCP_RELAY_URL ?? '').trim();
+  const room = (env.ANDROID_MCP_RELAY_ROOM ?? '').trim();
+  const secret = (env.ANDROID_MCP_RELAY_SECRET ?? '').trim().toLowerCase();
+  if (!url && !room && !secret) return null;
+  if (!/^tls:\/\/[A-Za-z0-9.-]{1,253}:[0-9]{1,5}$/.test(url)) {
+    throw new Error('ANDROID_MCP_RELAY_URL must be tls://host:port (TLS is mandatory).');
+  }
+  if (!/^[A-Za-z0-9_-]{8,64}$/.test(room)) {
+    throw new Error('ANDROID_MCP_RELAY_ROOM must be 8-64 characters [A-Za-z0-9_-].');
+  }
+  if (!/^[a-f0-9]{64}$/.test(secret)) {
+    throw new Error('ANDROID_MCP_RELAY_SECRET must be 64 hex characters, shared with the relay.');
+  }
+  return { url, room, secret, ca: env.ANDROID_MCP_RELAY_CA ?? null };
 }
 
 const LAN_SESSION_MAX_AGE_MS = 10 * 60 * 1000;
@@ -56,6 +80,7 @@ function validateDirectUrl(value) {
 
 export class AndroidClient {
   constructor({ url = null, token, preference = 'auto', lanUrl = null, tailscaleUrl = null, discovery = true,
+                relay = null, relayClientFactory = null, relayTimeoutMs = 30000,
                 timeoutMs = 30000, probeTimeoutMs = 1000, maxResponseBytes = 8 * 1024 * 1024,
                 resolver = null, fetchImpl = fetch, now = () => Date.now() }) {
     this.url = url ? validateDirectUrl(url) : null;
@@ -69,11 +94,41 @@ export class AndroidClient {
     this.lanSessions = new Map();
     this.lanSessionPromises = new Map();
     this.lanSessionEstablishedAt = new Map();
+    this.relay = null;
+    if (relay) {
+      const factory = relayClientFactory
+        ?? ((options) => import('./relay-client.js').then(mod => new mod.RelayClient(options)));
+      this.relayFactory = () => factory({ ...relay, token: this.token, timeoutMs: relayTimeoutMs });
+    }
     if (!this.url && !this.resolver) {
-      this.resolver = new TransportResolver({ preference, lanUrl, tailscaleUrl, discovery }, {
+      this.resolver = new TransportResolver({
+        preference, lanUrl, tailscaleUrl, discovery, relay: Boolean(this.relayFactory),
+      }, {
         discover: () => discoverLan({ token: this.token }),
         probe: endpoint => this.callOnce(endpoint, 'status', {}, true, this.probeTimeoutMs),
+        relayProbe: this.relayFactory ? () => this.callRelayOnce('status', {}, true) : null,
       });
+    }
+  }
+
+  async ensureRelay() {
+    if (!this.relayFactory) throw new Error('Relay transport not configured');
+    if (!this.relay) this.relay = await this.relayFactory();
+    return this.relay;
+  }
+
+  async callRelayOnce(method, params = {}, probe = false) {
+    const relay = await this.ensureRelay();
+    try {
+      const payload = await relay.call(method, params);
+      return this.unwrapPayload({ ok: true, status: 200 }, payload, probe);
+    } catch (error) {
+      if (error?.kind) throw error;
+      const wrapped = new Error(probe
+        ? 'Android relay unreachable.'
+        : `${error.message}; operation outcome unknown.`);
+      wrapped.kind = probe ? 'unreachable' : 'outcome_unknown';
+      throw wrapped;
     }
   }
 
@@ -90,6 +145,7 @@ export class AndroidClient {
   }
 
   async callOnce(url, method, params = {}, probe = false, timeoutMs = this.timeoutMs) {
+    if (url === 'relay') return this.callRelayOnce(method, params, probe);
     let isLan = false;
     try { validateLanOrigin(url); isLan = true; } catch { }
     if (isLan) return this.callLanOnce(url, method, params, probe, timeoutMs);
@@ -304,7 +360,7 @@ export class AndroidClient {
   }
 
   unwrapPayload(response, payload, probe = false) {
-    // Single shared RPC result parser (bearer + LAN): avoids drift between
+    // Single shared RPC result parser (bearer + LAN + relay): avoids drift between
     // two copies. Authenticated app errors (INVALID_ARGUMENT, …) stay
     // kind-less so a healthy endpoint is not evicted; every transport-level
     // ambiguity after POST becomes outcome_unknown (or unreachable in probe).

@@ -45,6 +45,44 @@ public final class RpcPolicy {
             case "privileged_status":
             case "capabilities":
             case "diagnostics":
+            // Media, sensors and telephony have their own visible capture
+            // surfaces or platform dialogs; they never hold the UI lock and
+            // must not block gestures while a recording is running.
+            case "media_list":
+            case "media_read":
+            case "media_delete":
+            case "photo_capture":
+            case "torch_set":
+            case "torch_status":
+            case "audio_record_start":
+            case "audio_record_stop":
+            case "audio_record_status":
+            case "screen_record_start":
+            case "screen_record_stop":
+            case "screen_record_status":
+            case "capture_stop_all":
+            case "sms_prepare":
+            case "sms_send":
+            case "sms_open_composer":
+            case "sms_list":
+            case "call_dial":
+            case "call_prepare":
+            case "call":
+            case "contacts_search":
+            case "health_status":
+            case "health_read":
+            case "health_aggregate":
+            case "health_request_permissions":
+            case "location_get":
+            case "speak":
+            case "speak_stop":
+            case "tts_status":
+            case "alarm_set":
+            case "timer_set":
+            case "current_app":
+            case "network_status":
+            case "relay_status":
+            case "relay_configure":
                 return LockDomain.NONE;
             case "shell":
             case "shizuku_shell":

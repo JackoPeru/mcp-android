@@ -27,7 +27,7 @@ I listener **TCP RPC** non ascoltano mai su `0.0.0.0` o `::`: vengono legati sol
 
 ## Installazione senza cavo
 
-APK disponibile come fonte primaria dalla **GitHub Release v0.8.25** (`mcp-android-0.8.25-debug.apk` con SHA-256 nel `.sha256` accanto). La copia in `dist/` è solo un artefatto locale di build, non la fonte di installazione. È una build debug firmata per installazione personale, non una release Play Store.
+APK disponibile come fonte primaria dalla **GitHub Release v0.9.0** (`mcp-android-0.9.0-debug.apk` con SHA-256 nel `.sha256` accanto). La copia in `dist/` è solo un artefatto locale di build, non la fonte di installazione. È una build debug firmata per installazione personale, non una release Play Store.
 
 1. Trasferisci l'APK al telefono, ad esempio con Tailscale Taildrop o il tuo servizio file, e aprilo dal telefono. Autorizza l'installazione per l'app da cui lo apri.
 2. Apri MCP Android e abilita il servizio Accessibilità nelle impostazioni Android. Per APK installati esternamente, Android può richiedere prima **Consenti impostazioni con restrizioni** nelle informazioni dell'app.
@@ -172,6 +172,21 @@ metodi e build Xcode in `docs/ios-parity.md` e `ios/README.md`.
 | `android_file_move`, `android_file_copy` | Sposta/copia nello stesso albero SAF se il provider lo supporta |
 | `android_file_delete` | Elimina un elemento, mai la root autorizzata |
 | `android_batch` | Esegue fino a 20 azioni UI/system validate in sequenza per ridurre i round-trip |
+| `android_media_list`, `android_media_read`, `android_media_delete` | Catture (foto/audio/video) in storage privato: elenco, lettura a blocchi base64, eliminazione |
+| `android_photo_capture` | Foto con fotocamera posteriore/anteriore, flash auto/on/off, ridimensionamento e qualità; l'immagine torna all'agente come contenuto immagine |
+| `android_torch_set`, `android_torch_status` | Torcia on/off e disponibilità |
+| `android_audio_record_start/stop/status` | Registrazione microfono con schermata visibile, notifica persistente, durata massima e formato (m4a/AAC, ogg/Opus) |
+| `android_screen_record_start/stop/status` | Registrazione schermo MediaProjection con consenso di sistema, fps/bitrate/risoluzione configurabili |
+| `android_capture_stop_all` | Kill switch immediato per audio, schermo e torcia |
+| `android_sms_prepare`, `android_sms_send`, `android_sms_open_composer`, `android_sms_list` | SMS con conferma esplicita in-app monouso; composer senza permessi; inbox opzionale |
+| `android_call_dial`, `android_call_prepare`, `android_call` | Dialer precompilato e chiamata diretta solo con conferma monouso e permesso |
+| `android_contacts_search` | Ricerca contatti per nome o numero |
+| `android_health_status/read/aggregate/request_permissions` | Health Connect in sola lettura, permessi per categoria, aggregazioni calcolate on-device |
+| `android_location_get` | Posizione GPS/network una tantum (nessun tracking) |
+| `android_speak`, `android_speak_stop`, `android_tts_status` | Sintesi vocale Android |
+| `android_alarm_set`, `android_timer_set` | Sveglie e timer tramite app orologio di sistema |
+| `android_current_app`, `android_network_status` | App in primo piano e stato rete dettagliato |
+| `android_relay_status`, `android_relay_configure` | Relay self-hosted TLS opzionale con cifratura end-to-end |
 
 Esempi per l'agente: «Leggi lo stato del telefono, osserva la schermata e apri Impostazioni»; «Apri un'app, clicca Continua, attendi che la UI si stabilizzi e restituisci il diff in una sola chiamata»; «Esegui una sequenza deterministica di 5 step in `android_flow`»; «Elenca le cartelle autorizzate, poi cerca il documento nella cartella Documenti senza usare lo schermo».
 
@@ -232,7 +247,7 @@ npm run check
 
 (da `cmd.exe` usa `npm.cmd` al posto di `npm`).
 
-I test verificano configurazione privata, bearer Tailscale legacy, timeout/limiti/redirect, HMAC discovery cross-language, source-IP/subnet validation, handshake server-authenticated, vettori AES-256-GCM Node↔Java, chiavi separate per direzione, anti-replay, assenza del bearer/plaintext sul path LAN, `outcome_unknown` su risposta LAN manomessa, callback VPN, flow DSL, snapshot/diff, capability routing, release identity/firma e discovery dei **67 tool MCP** tramite processo stdio. La build Android esegue anche unit test e lint. I test desktop/JVM **non** dimostrano ancora broadcast/routing reale su uno specifico telefono/router né consumo batteria fisico. Risultati finali: `docs/acceptance.md` (stato v0.8.25).
+I test verificano configurazione privata, bearer Tailscale legacy, timeout/limiti/redirect, HMAC discovery cross-language, source-IP/subnet validation, handshake server-authenticated, vettori AES-256-GCM Node↔Java, chiavi separate per direzione, anti-replay, assenza del bearer/plaintext sul path LAN, `outcome_unknown` su risposta LAN manomessa, callback VPN, flow DSL, snapshot/diff, capability routing, release identity/firma e discovery dei **102 tool MCP** tramite processo stdio, inclusi i nuovi strumenti media/telefono/Health Connect/relay. La build Android esegue anche unit test e lint. I test desktop/JVM **non** dimostrano ancora broadcast/routing reale su uno specifico telefono/router né consumo batteria fisico. Risultati finali: `docs/acceptance.md` (stato v0.9.0).
 
 Per ricompilare servono JDK 17 o successivo e Android SDK 35. `build-android.ps1` trova SDK e Java locali, incluso l'eventuale JDK portatile ignorato in `.tools/jdk17`, esegue build/test/lint e aggiorna APK e checksum in `dist`. `publish-release.ps1` ripete le verifiche e pubblica la release GitHub dalla macchina locale. Non cambia variabili di sistema né usa ADB. Il progetto include Gradle Wrapper.
 

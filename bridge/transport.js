@@ -49,6 +49,7 @@ export class TransportResolver {
   constructor(config, {
     discover,
     probe,
+    relayProbe = null,
     now = () => Date.now(),
     validationTtlMs = 5_000,
     lanRetryMs = 5_000,
@@ -61,8 +62,10 @@ export class TransportResolver {
     this.lanRetryAfter = 0;
     this.tailscaleUrl = config.tailscaleUrl ?? null;
     this.discovery = config.discovery !== false;
+    this.relay = config.relay === true;
     this.discover = discover;
     this.probe = probe;
+    this.relayProbe = relayProbe;
     this.now = now;
     this.validationTtlMs = validationTtlMs;
     this.lanRetryMs = lanRetryMs;
@@ -70,6 +73,13 @@ export class TransportResolver {
   }
 
   async resolve() {
+    // Relay is opt-in and additive: LAN stays preferred, Tailscale next, and
+    // the relay is only used when configured and the others are unavailable.
+    if (this.preference === 'relay') {
+      if (!this.relay) throw new Error('Relay transport unavailable');
+      if (this.relayProbe) await this.relayProbe();
+      return { url: 'relay', transport: 'relay' };
+    }
     if (this.preference === 'tailscale') {
       if (!this.tailscaleUrl) throw new Error('Tailscale endpoint unavailable');
       return { url: this.tailscaleUrl, transport: 'tailscale' };
@@ -80,6 +90,10 @@ export class TransportResolver {
 
     if (this.preference === 'lan') throw new Error('LAN endpoint unavailable');
     if (this.tailscaleUrl) return { url: this.tailscaleUrl, transport: 'tailscale' };
+    if (this.relay) {
+      if (this.relayProbe) await this.relayProbe();
+      return { url: 'relay', transport: 'relay' };
+    }
     throw new Error('No Android MCP endpoint available');
   }
 

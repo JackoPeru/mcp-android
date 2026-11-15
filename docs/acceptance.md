@@ -1,4 +1,23 @@
-# Acceptance v0.8.20
+# Acceptance v0.9.0
+
+## Delta v0.9.0 (15/11/2026)
+
+- 35 nuovi tool MCP (102 totali): fotocamera CameraX con immagine inline,
+  torcia, registrazione audio (foreground service microfono), registrazione
+  schermo MediaProjection, storage catture privato con trasferimento a blocchi,
+  SMS/chiamate con conferma in-app monouso, contatti, Health Connect read-only
+  per categoria, posizione, TTS, sveglie/timer, app in primo piano, stato rete.
+- Relay self-hosted opzionale: TLS obbligatorio, autenticazione mutua con
+  pairing secret, cifratura end-to-end dei comandi con dominio separato,
+  riconnessione con backoff, semantica `outcome_unknown` invariata.
+- UI: nuova scheda "Funzioni" con permessi, stato acquisizioni, Health Connect,
+  configurazione relay e kill switch "Arresta tutto".
+- Verifiche eseguite: 133 unit test JVM (0 failure, 3 skip symlink Windows),
+  84 test Node inclusi relay server end-to-end, lint Android 0 errori,
+  build APK firmato con certificato storico
+  `7be7c380…c84823f` e SHA-256 in `dist/*.sha256`.
+- Non verificato su dispositivo fisico: fotocamera, microfono, MediaProjection,
+  SMS/chiamate reali, Health Connect, GPS, TTS e relay attraverso NAT reale.
 
 ## Delta v0.8.20 (24/09/2026)
 

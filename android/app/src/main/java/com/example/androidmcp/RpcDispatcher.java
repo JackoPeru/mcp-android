@@ -151,6 +151,41 @@ public final class RpcDispatcher {
             case "file_move": return fileMove(params);
             case "file_copy": return fileCopy(params);
             case "file_delete": return fileDelete(params);
+            case "media_list": return mediaList(params);
+            case "media_read": return mediaRead(params);
+            case "media_delete": return mediaDelete(params);
+            case "photo_capture": return photoCapture(params);
+            case "torch_set": return torchSet(params);
+            case "torch_status": return torchStatus(params);
+            case "audio_record_start": return audioRecordStart(params);
+            case "audio_record_stop": return audioRecordStop(params);
+            case "audio_record_status": return audioRecordStatus(params);
+            case "screen_record_start": return screenRecordStart(params);
+            case "screen_record_stop": return screenRecordStop(params);
+            case "screen_record_status": return screenRecordStatus(params);
+            case "capture_stop_all": return captureStopAll(params);
+            case "sms_prepare": return smsPrepare(params);
+            case "sms_send": return smsSend(params);
+            case "sms_open_composer": return smsOpenComposer(params);
+            case "sms_list": return smsList(params);
+            case "call_dial": return callDial(params);
+            case "call_prepare": return callPrepare(params);
+            case "call": return callDirect(params);
+            case "contacts_search": return contactsSearch(params);
+            case "health_status": return healthStatus(params);
+            case "health_read": return healthRead(params);
+            case "health_aggregate": return healthAggregate(params);
+            case "health_request_permissions": return healthRequestPermissions(params);
+            case "location_get": return locationGet(params);
+            case "speak": return speak(params);
+            case "speak_stop": return speakStop(params);
+            case "tts_status": return ttsStatus(params);
+            case "alarm_set": return alarmSet(params);
+            case "timer_set": return timerSet(params);
+            case "current_app": return currentApp(params);
+            case "network_status": return networkStatus(params);
+            case "relay_status": return relayStatus(params);
+            case "relay_configure": return relayConfigure(params);
             default: throw new ApiException("UNKNOWN_METHOD", "Unknown RPC method");
         }
     }
@@ -195,6 +230,19 @@ public final class RpcDispatcher {
             result.put("allFilesActive", AllFilesAccess.isActive(context));
             result.put("displayWidth", display.x);
             result.put("displayHeight", display.y);
+            result.put("captures", new JSONObject()
+                    .put("cameraPermission", CameraController.hasPermission(context))
+                    .put("microphonePermission", AudioController.hasPermission(context))
+                    .put("audioState", AudioController.state)
+                    .put("screenState", ScreenRecordController.state)
+                    .put("retentionMs", 24L * 60 * 60 * 1000));
+            result.put("sensors", new JSONObject()
+                    .put("locationPermission", LocationController.hasPermission(context))
+                    .put("contactsPermission", ContactsController.canRead(context))
+                    .put("smsSendPermission", SmsController.canSend(context))
+                    .put("smsReadPermission", SmsController.canRead(context))
+                    .put("callPermission", CallController.canCall(context)));
+            result.put("relay", RelayConfig.describe(context));
             String error = McpForegroundService.error();
             if (!error.isEmpty()) {
                 result.put("lastError", error);
@@ -931,10 +979,17 @@ public final class RpcDispatcher {
             result.put("capabilities", CapabilityRouter.status(context, roots));
             result.put("recentEvents", EventJournal.recent(eventLimit));
             result.put("recentTraces", TraceJournal.recent(traceLimit));
+            result.put("captures", new JSONObject()
+                    .put("audio", AudioController.status(context))
+                    .put("screen", ScreenRecordController.status(context))
+                    .put("retained", CaptureStore.list(context, "", 1).optInt("total", 0)));
+            result.put("relay", RelayConfig.describe(context));
             result.put("privacy", new JSONObject()
                     .put("tracePayloadsStored", false)
                     .put("notificationBodiesStored", false)
                     .put("accessibilityTextPersisted", false)
+                    .put("healthDataStored", false)
+                    .put("captureContentsLogged", false)
                     .put("credentialsIncluded", false));
             return result;
         } catch (JSONException e) {
@@ -1117,6 +1172,290 @@ public final class RpcDispatcher {
         } catch (JSONException e) {
             throw new ApiException("INVALID_ARGUMENT", "Invalid selector");
         }
+    }
+
+    // ---- Media captures -----------------------------------------------------
+
+    private JSONObject mediaList(JSONObject params) throws ApiException {
+        JsonArgs.only(params, "kind", "limit");
+        String kind = JsonArgs.optionalStringAllowEmpty(params, "kind", "", 16);
+        int limit = JsonArgs.optionalInt(params, "limit", 20, 1, 200);
+        return CaptureStore.list(context, kind, limit);
+    }
+
+    private JSONObject mediaRead(JSONObject params) throws ApiException {
+        JsonArgs.only(params, "name", "offset", "length");
+        String name = JsonArgs.requiredString(params, "name", 120);
+        long offset = JsonArgs.optionalLong(params, "offset", 0);
+        int length = JsonArgs.optionalInt(params, "length", 65536, 1, CaptureStore.maxReadBytes());
+        if (offset < 0) throw new ApiException("INVALID_ARGUMENT", "Invalid offset");
+        return CaptureStore.read(context, name, offset, length);
+    }
+
+    private JSONObject mediaDelete(JSONObject params) throws ApiException {
+        JsonArgs.only(params, "name");
+        return CaptureStore.delete(context, JsonArgs.requiredString(params, "name", 120));
+    }
+
+    private JSONObject photoCapture(JSONObject params) throws ApiException {
+        JsonArgs.only(params, "lens", "flash", "maxWidth", "quality", "timeoutMs");
+        requireUnlocked();
+        String lens = JsonArgs.optionalString(params, "lens", "back", 8);
+        String flash = JsonArgs.optionalString(params, "flash", "auto", 8);
+        int maxWidth = JsonArgs.optionalInt(params, "maxWidth", 0, 0, 4096);
+        int quality = JsonArgs.optionalInt(params, "quality", 90, 40, 100);
+        long timeout = JsonArgs.optionalLong(params, "timeoutMs", 15_000);
+        if (timeout < 1000 || timeout > 20_000) throw new ApiException("INVALID_ARGUMENT", "Invalid timeout");
+        return CameraController.capture(context, lens, flash, maxWidth, quality, timeout);
+    }
+
+    private JSONObject torchSet(JSONObject params) throws ApiException {
+        JsonArgs.only(params, "enabled");
+        return CameraController.torch(context, JsonArgs.requiredBoolean(params, "enabled"));
+    }
+
+    private JSONObject torchStatus(JSONObject params) throws ApiException {
+        JsonArgs.only(params);
+        return CameraController.torchStatus(context);
+    }
+
+    private JSONObject audioRecordStart(JSONObject params) throws ApiException {
+        JsonArgs.only(params, "format", "maxDurationSec", "bitrateKbps", "timeoutMs");
+        requireUnlocked();
+        String format = JsonArgs.optionalString(params, "format", "m4a", 8);
+        int maxDuration = JsonArgs.optionalInt(params, "maxDurationSec", 60, 1, 3600);
+        int bitrate = JsonArgs.optionalInt(params, "bitrateKbps", 96, 16, 320);
+        long timeout = JsonArgs.optionalLong(params, "timeoutMs", 8000);
+        if (timeout < 1000 || timeout > 20_000) throw new ApiException("INVALID_ARGUMENT", "Invalid timeout");
+        return AudioController.start(context, format, maxDuration, bitrate, timeout);
+    }
+
+    private JSONObject audioRecordStop(JSONObject params) throws ApiException {
+        JsonArgs.only(params);
+        return AudioController.stop(context);
+    }
+
+    private JSONObject audioRecordStatus(JSONObject params) throws ApiException {
+        JsonArgs.only(params);
+        return AudioController.status(context);
+    }
+
+    private JSONObject screenRecordStart(JSONObject params) throws ApiException {
+        JsonArgs.only(params, "maxDurationSec", "fps", "bitrateKbps", "maxLongEdge", "timeoutMs");
+        requireUnlocked();
+        int maxDuration = JsonArgs.optionalInt(params, "maxDurationSec", 60, 1, 1800);
+        int fps = JsonArgs.optionalInt(params, "fps", 30, 10, 60);
+        int bitrate = JsonArgs.optionalInt(params, "bitrateKbps", 4000, 500, 20000);
+        int maxLongEdge = JsonArgs.optionalInt(params, "maxLongEdge", 1280, 0, 2160);
+        long timeout = JsonArgs.optionalLong(params, "timeoutMs", 18_000);
+        if (timeout < 2000 || timeout > 22_000) throw new ApiException("INVALID_ARGUMENT", "Invalid timeout");
+        return ScreenRecordController.start(context, maxDuration, fps, bitrate, maxLongEdge, timeout);
+    }
+
+    private JSONObject screenRecordStop(JSONObject params) throws ApiException {
+        JsonArgs.only(params);
+        return ScreenRecordController.stop(context);
+    }
+
+    private JSONObject screenRecordStatus(JSONObject params) throws ApiException {
+        JsonArgs.only(params);
+        return ScreenRecordController.status(context);
+    }
+
+    private JSONObject captureStopAll(JSONObject params) throws ApiException {
+        JsonArgs.only(params);
+        AudioController.forceStop(context);
+        ScreenRecordController.forceStop(context);
+        try {
+            CameraController.torch(context, false);
+        } catch (ApiException ignored) { }
+        JSONObject result = new JSONObject();
+        try {
+            result.put("ok", true);
+            result.put("audio", AudioController.status(context));
+            result.put("screen", ScreenRecordController.status(context));
+            result.put("torch", false);
+            return result;
+        } catch (JSONException e) {
+            throw new ApiException("INTERNAL", "Unable to encode capture state");
+        }
+    }
+
+    // ---- Telephony ----------------------------------------------------------
+
+    private JSONObject smsPrepare(JSONObject params) throws ApiException {
+        JsonArgs.only(params, "to", "body");
+        return SmsController.prepare(context,
+                JsonArgs.requiredString(params, "to", 32),
+                JsonArgs.requiredStringAllowEmpty(params, "body", 1600));
+    }
+
+    private JSONObject smsSend(JSONObject params) throws ApiException {
+        JsonArgs.only(params, "confirmationId", "to", "body");
+        return SmsController.send(context,
+                JsonArgs.requiredString(params, "confirmationId", 32),
+                JsonArgs.requiredString(params, "to", 32),
+                JsonArgs.requiredStringAllowEmpty(params, "body", 1600));
+    }
+
+    private JSONObject smsOpenComposer(JSONObject params) throws ApiException {
+        JsonArgs.only(params, "to", "body");
+        return SmsController.openComposer(context,
+                JsonArgs.requiredString(params, "to", 32),
+                JsonArgs.optionalStringAllowEmpty(params, "body", "", 1600));
+    }
+
+    private JSONObject smsList(JSONObject params) throws ApiException {
+        JsonArgs.only(params, "limit", "unreadOnly");
+        return SmsController.list(context,
+                JsonArgs.optionalInt(params, "limit", 20, 1, 50),
+                JsonArgs.optionalBoolean(params, "unreadOnly", false));
+    }
+
+    private JSONObject callDial(JSONObject params) throws ApiException {
+        JsonArgs.only(params, "number");
+        return CallController.dial(context, JsonArgs.requiredString(params, "number", 32));
+    }
+
+    private JSONObject callPrepare(JSONObject params) throws ApiException {
+        JsonArgs.only(params, "number");
+        return CallController.prepare(context, JsonArgs.requiredString(params, "number", 32));
+    }
+
+    private JSONObject callDirect(JSONObject params) throws ApiException {
+        JsonArgs.only(params, "confirmationId", "number");
+        return CallController.call(context,
+                JsonArgs.requiredString(params, "confirmationId", 32),
+                JsonArgs.requiredString(params, "number", 32));
+    }
+
+    private JSONObject contactsSearch(JSONObject params) throws ApiException {
+        JsonArgs.only(params, "query", "limit");
+        return ContactsController.search(context,
+                JsonArgs.optionalStringAllowEmpty(params, "query", "", 100),
+                JsonArgs.optionalInt(params, "limit", 20, 1, 50));
+    }
+
+    // ---- Health Connect (read-only) ----------------------------------------
+
+    private JSONObject healthStatus(JSONObject params) throws ApiException {
+        JsonArgs.only(params);
+        return HealthController.status(context);
+    }
+
+    private JSONObject healthRead(JSONObject params) throws ApiException {
+        JsonArgs.only(params, "type", "start", "end", "limit");
+        return HealthController.read(context,
+                JsonArgs.requiredString(params, "type", 32),
+                JsonArgs.optionalStringAllowEmpty(params, "start", "", 40),
+                JsonArgs.optionalStringAllowEmpty(params, "end", "", 40),
+                JsonArgs.optionalInt(params, "limit", 200, 1, 1000));
+    }
+
+    private JSONObject healthAggregate(JSONObject params) throws ApiException {
+        JsonArgs.only(params, "type", "start", "end", "limit");
+        return HealthController.aggregate(context,
+                JsonArgs.requiredString(params, "type", 32),
+                JsonArgs.optionalStringAllowEmpty(params, "start", "", 40),
+                JsonArgs.optionalStringAllowEmpty(params, "end", "", 40),
+                JsonArgs.optionalInt(params, "limit", 1000, 1, 5000));
+    }
+
+    private JSONObject healthRequestPermissions(JSONObject params) throws ApiException {
+        JsonArgs.only(params, "types");
+        JSONArray array = JsonArgs.requiredArray(params, "types");
+        java.util.List<String> types = new java.util.ArrayList<>();
+        for (int i = 0; i < Math.min(array.length(), 32); i++) {
+            Object value = array.opt(i);
+            if (!(value instanceof String)) throw new ApiException("INVALID_ARGUMENT", "Invalid health type");
+            types.add((String) value);
+        }
+        return HealthController.requestPermissions(context, types);
+    }
+
+    // ---- Sensors and system extras ----------------------------------------
+
+    private JSONObject locationGet(JSONObject params) throws ApiException {
+        JsonArgs.only(params, "timeoutMs", "highAccuracy");
+        long timeout = JsonArgs.optionalLong(params, "timeoutMs", 8000);
+        if (timeout < 1000 || timeout > 15_000) throw new ApiException("INVALID_ARGUMENT", "Invalid timeout");
+        return LocationController.get(context, timeout,
+                JsonArgs.optionalBoolean(params, "highAccuracy", true));
+    }
+
+    private JSONObject speak(JSONObject params) throws ApiException {
+        JsonArgs.only(params, "text", "flush", "language");
+        return TtsController.speak(context,
+                JsonArgs.requiredStringAllowEmpty(params, "text", 4000),
+                JsonArgs.optionalBoolean(params, "flush", true),
+                JsonArgs.optionalStringAllowEmpty(params, "language", "", 16));
+    }
+
+    private JSONObject speakStop(JSONObject params) throws ApiException {
+        JsonArgs.only(params);
+        return TtsController.stop();
+    }
+
+    private JSONObject ttsStatus(JSONObject params) throws ApiException {
+        JsonArgs.only(params);
+        return TtsController.status(context);
+    }
+
+    private JSONObject alarmSet(JSONObject params) throws ApiException {
+        JsonArgs.only(params, "hour", "minute", "label", "skipUi");
+        return AlarmController.setAlarm(context,
+                JsonArgs.requiredInt(params, "hour", 0, 23),
+                JsonArgs.requiredInt(params, "minute", 0, 59),
+                JsonArgs.optionalStringAllowEmpty(params, "label", "", 120),
+                JsonArgs.optionalBoolean(params, "skipUi", true));
+    }
+
+    private JSONObject timerSet(JSONObject params) throws ApiException {
+        JsonArgs.only(params, "seconds", "label", "skipUi");
+        return AlarmController.setTimer(context,
+                JsonArgs.requiredInt(params, "seconds", 1, 86_400),
+                JsonArgs.optionalStringAllowEmpty(params, "label", "", 120),
+                JsonArgs.optionalBoolean(params, "skipUi", true));
+    }
+
+    private JSONObject currentApp(JSONObject params) throws ApiException {
+        JsonArgs.only(params);
+        return DeviceStateController.currentApp(context);
+    }
+
+    private JSONObject networkStatus(JSONObject params) throws ApiException {
+        JsonArgs.only(params);
+        return DeviceStateController.networkStatus(context);
+    }
+
+    // ---- Relay transport ----------------------------------------------------
+
+    private JSONObject relayStatus(JSONObject params) throws ApiException {
+        JsonArgs.only(params);
+        return RelayConfig.describe(context);
+    }
+
+    private JSONObject relayConfigure(JSONObject params) throws ApiException {
+        JsonArgs.only(params, "enabled", "url", "room", "secret");
+        boolean enabled = JsonArgs.optionalBoolean(params, "enabled", false);
+        String url = JsonArgs.optionalStringAllowEmpty(params, "url", "", 300).trim();
+        String room = JsonArgs.optionalStringAllowEmpty(params, "room", "", 64).trim();
+        String secret = JsonArgs.optionalStringAllowEmpty(params, "secret", "", 64).trim();
+        if (enabled) {
+            if (!RelayConfig.isValidUrl(url)) {
+                throw new ApiException("INVALID_ARGUMENT", "Relay URL must be tls://host:port");
+            }
+            if (!RelayConfig.isValidRoom(room)) {
+                throw new ApiException("INVALID_ARGUMENT", "Relay room must be 8-64 chars [A-Za-z0-9_-]");
+            }
+            if (!RelayConfig.isValidSecret(secret)) {
+                throw new ApiException("INVALID_ARGUMENT", "Relay pairing secret must be 64 hex characters");
+            }
+        }
+        RelayConfig.save(context, enabled, url, room, secret);
+        RelayClient.stop(context);
+        if (enabled) RelayClient.start(context);
+        return RelayConfig.describe(context);
     }
 
     private void requireUnlocked() throws ApiException {

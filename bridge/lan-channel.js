@@ -21,27 +21,28 @@ function sessionValue(session) {
   return session;
 }
 
-function deriveKey(token, session, direction) {
+function deriveKey(token, session, direction, domain = DOMAIN) {
   if (direction !== 'request' && direction !== 'response') throw new Error('Invalid LAN channel direction');
+  if (!domain) throw new Error('Invalid LAN channel domain');
   return createHmac('sha256', tokenBytes(token))
-    .update(DOMAIN + '\n' + sessionValue(session) + '\n' + direction, 'utf8').digest();
+    .update(domain + '\n' + sessionValue(session) + '\n' + direction, 'utf8').digest();
 }
 
-function aad(direction, session) {
+function aad(direction, session, domain = DOMAIN) {
   if (direction !== 'request' && direction !== 'response') throw new Error('Invalid LAN channel direction');
-  return Buffer.from(DOMAIN + '\n' + direction + '\n' + sessionValue(session), 'utf8');
+  return Buffer.from(domain + '\n' + direction + '\n' + sessionValue(session), 'utf8');
 }
 
-function encrypt(token, session, direction, payload, nonceHex = randomBytes(12).toString('hex')) {
+function encrypt(token, session, direction, payload, nonceHex = randomBytes(12).toString('hex'), domain = DOMAIN) {
   if (!NONCE_RE.test(nonceHex)) throw new Error('Invalid LAN channel nonce');
-  const cipher = createCipheriv('aes-256-gcm', deriveKey(token, session, direction), Buffer.from(nonceHex, 'hex'));
-  cipher.setAAD(aad(direction, session));
+  const cipher = createCipheriv('aes-256-gcm', deriveKey(token, session, direction, domain), Buffer.from(nonceHex, 'hex'));
+  cipher.setAAD(aad(direction, session, domain));
   const plaintext = Buffer.from(JSON.stringify(payload), 'utf8');
   const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final(), cipher.getAuthTag()]);
   return { version: VERSION, session, nonce: nonceHex, ciphertext: ciphertext.toString('base64') };
 }
 
-function decrypt(token, session, direction, envelope) {
+function decrypt(token, session, direction, envelope, domain = DOMAIN) {
   if (!envelope || typeof envelope !== 'object' || Array.isArray(envelope)) throw new Error('Invalid LAN channel envelope');
   const keys = Object.keys(envelope).sort();
   const expected = ['ciphertext', 'nonce', 'session', 'version'];
@@ -53,8 +54,8 @@ function decrypt(token, session, direction, envelope) {
   }
   const encrypted = Buffer.from(envelope.ciphertext, 'base64');
   if (encrypted.length < 17) throw new Error('Invalid LAN channel envelope');
-  const decipher = createDecipheriv('aes-256-gcm', deriveKey(token, session, direction), Buffer.from(envelope.nonce, 'hex'));
-  decipher.setAAD(aad(direction, session));
+  const decipher = createDecipheriv('aes-256-gcm', deriveKey(token, session, direction, domain), Buffer.from(envelope.nonce, 'hex'));
+  decipher.setAAD(aad(direction, session, domain));
   decipher.setAuthTag(encrypted.subarray(encrypted.length - 16));
   const plaintext = Buffer.concat([decipher.update(encrypted.subarray(0, -16)), decipher.final()]);
   let payload;
@@ -63,10 +64,21 @@ function decrypt(token, session, direction, envelope) {
   return payload;
 }
 
+export const RELAY_DOMAIN = 'mcp-android-relay-v1';
+
 export function encryptRequest(token, session, payload, nonceHex) { return encrypt(token, session, 'request', payload, nonceHex); }
 export function decryptRequest(token, session, envelope) { return decrypt(token, session, 'request', envelope); }
 export function encryptResponse(token, session, payload, nonceHex) { return encrypt(token, session, 'response', payload, nonceHex); }
 export function decryptResponse(token, session, envelope) { return decrypt(token, session, 'response', envelope); }
+export function encryptRelayRequest(token, session, payload) {
+  return encrypt(token, session, 'request', payload, undefined, RELAY_DOMAIN);
+}
+export function decryptRelayRequest(token, session, envelope) {
+  return decrypt(token, session, 'request', envelope, RELAY_DOMAIN);
+}
+export function decryptRelayResponse(token, session, envelope) {
+  return decrypt(token, session, 'response', envelope, RELAY_DOMAIN);
+}
 
 export function helloProof(token, nonce, session) {
   if (typeof nonce !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(nonce)) throw new Error('Invalid LAN hello nonce');
